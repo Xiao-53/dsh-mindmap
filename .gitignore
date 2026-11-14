@@ -1,0 +1,23 @@
+# Local credentials and environment overrides
+.env
+.env.*
+!.env.example
+
+# Local Codex credentials, sessions, and logs (shared config stays trackable)
+/.codex/auth.json
+/.codex/auth.*.json
+/.codex/history.jsonl
+/.codex/sessions/
+/.codex/log/
+
+# Spec Kit local automation state
+/.specify/.workflow-install.lock
+/.specify/workflows/runs/
+
+# OS and editor temporary files
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.log
+*.swp
+*~
