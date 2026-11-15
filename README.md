@@ -1,6 +1,6 @@
 # dsh-mindmap
 
-面向 [DSH（DeepSeek Harness）](https://github.com/deepseek-ai/deepseek-harness) 的原生侧栏思维导图插件，用于整理知识、梳理流程和设计系统架构。
+面向 [DSH（DeepSeek Harness）](https://github.com/deepseek-ai/deepseek-harness) 的原生侧栏思维导图插件，可用于整理知识、梳理流程、项目架构可视化等。
 
 在对话中通过 `/mindmap` 描述需求，由模型调用插件工具创建或局部修改导图，再在侧栏中阅读、拖动和探索内容。
 
