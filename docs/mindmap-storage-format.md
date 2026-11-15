@@ -1,5 +1,11 @@
 # 思维导图存储格式与内容契约
 
+## 0.3.11 创建占位与失败记录
+
+atlas_create先校验完整候选，再写`.transactions/<operationId>/reservation.json`。进入占位后的可安全清理失败，先持久化`failed.json`（kind为failed_create，包含operationId/request哈希/code），再按版本删除reservation；事务回退仍负责内容文件。失败请求记录保留同ID不同请求拒绝，成功结果仍由result.json重放。完整校验未通过的新请求不创建目录，也不建立请求预留。
+
+管理页与atlas_list通过严格目录清单、operationId派生mapId和请求哈希识别无地图的创建记录，单列incompleteCreates，不把它们当可读取地图。历史只有reservation的记录保留，用户可在回收站二级入口或通过atlas_cleanup_create显式清理：先持久化`.transactions/discarded-create.json`（kind为discarded_create，mapId/operationId/request），再按版本删除reservation/failed文件；保留作废标记拒绝旧请求重试，清理完成不再列出，中途失败为cleanup_pending可重试。活动、待恢复、未知内容和成功结果缺失地图的情况不作纯占位处理。文件服务不提供目录删除，本版不递归清除目录，保留必要标记/空目录。真实失败边界尚未进行本轮故障注入验证，详见[0.3.11](validation/0.3.11.md)。下方旧状态描述为历史规划，当前状态见release-status。
+
 状态：JSON + Markdown已确认，当前候选已接入读取、校验、单文件布局/目录保存、空白建图和全图HTML下载，人工验收待完成；多文件事务与原生AI工具仍未实现。本文定义v1数据契约，不代表完整能力已经通过验证。产品范围以 [spec.md](../specs/001-sidebar-knowledge-atlas/spec.md) 为准，呈现直接遵循 [HTML v17](knowledge_atlas_demo_v17.html)。
 
 本文是插件开发契约。HTML 仅供开发插件使用；插件维护完整界面模板，将 JSON 和 Markdown 内容填入模板并渲染侧栏。DSH 只接收内容字段与操作规则，负责知识内容和结构；布局、连线、动画及视觉验证由插件承担。供 DSH 使用的完整内容格式已单独列在[提示词](mindmap-authoring-prompts.md)中，不将本文的布局和开发参考部分发给 DSH。

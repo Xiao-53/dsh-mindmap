@@ -29,6 +29,8 @@ DSH生成知识内容 → 调用插件工具 → 插件校验并写入地图目�
 以下是插件实际注册的工具名称，不是DSH内置API。运行时schema见src/server/tools/schemas.ts；0.3.9起内嵌skill名称为mindmap，使用DSH原生`/mindmap`引用随需求手动发送，或由模型按需加载。插件不注册同名命令，旧`/minimap`及恢复子命令已删除。工作区由调用上下文绑定，不接受模型传任意绝对路径。
 
 - `atlas_list()`：返回有效地图的mapId、title及摘要；同名地图保留不同身份。
+- 0.3.11的列表结果另含incompleteCreates（mapId/operationId/state），仅表示严格识别的未完成创建记录，不是可读取地图；其余未知或损坏目录保留在diagnostics。创建完整候选校验先于reservation，失败占位由插件按归属和事务状态处理，不由模型删文件。
+- `atlas_cleanup_create({mapId,operationId})`：0.3.11新增，仅在用户明确要求时清理incompleteCreates中的指定项，须宿主授权。与回收站二级入口共用服务，不接受路径，不删除完整地图/未知内容/活动事务；先持久化作废标记再删除占位/失败记录，原创建请求不再重试。清理中断可重试，保留标记与空目录。
 - `atlas_read({mapId, nodeIds?, viewIds?, query?, cursor?})`：未指定过滤时读取全图结构与笔记；指定时返回相关对象、笔记及依赖、fingerprint。较大结果显式分页，返回nextCursor，不能静默截断。版本变化后旧cursor失效。
 - `atlas_create({operationId, content, notes})`：content为存储契约Map去掉id和schemaVersion，notes为nodeId到Markdown的映射。节点内容不传notePath，由插件分配；content中的节点/视图/关系ID在候选内唯一且关联有效。插件分配地图ID、路径和schemaVersion=1；创建同名地图不会覆盖。
 - `atlas_preview({mapId, expectedFingerprint, changes})`：返回具体变更和删除影响清单、预览token；不写知识文件。删除在此展示影响；token绑定版本和changes摘要，不能拿旧确认执行新删除。

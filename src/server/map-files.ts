@@ -35,6 +35,7 @@ export interface MapFilePort {
   read(path: string, mapId: string, assetsOnly?: boolean): Promise<FileRecord>
   absent(path: string): Promise<boolean>
   list(): Promise<string[]>
+  listEntries?(mapId: string, relative: string): Promise<readonly { name: string; type: string }[]>
   writeLayout(
     mapId: string,
     text: string,
@@ -194,6 +195,20 @@ export function createHostFiles(
         throw e
       }
     },
+    async listEntries(id, relative) {
+      // boundary要求文件目标；用目录内固定哨兵验证真实目录归属，不读取/创建哨兵。
+      const path = mapPath(id, relative)
+      await boundary(`${path}/.boundary`, id)
+      const entry = await ctx.fs.lstat(path, { cwd: scope.workspaceRoot }, signal)
+      if (!entry || entry.type !== 'directory') throw new AtlasError('invalid_data', '占位目录必须为普通目录')
+      const listing = await ctx.workspaceFiles.list(scope, path, signal)
+      if (listing.truncated) throw new AtlasError('too_large', '占位目录列举被截断，保留原资料')
+      for (const child of listing.entries) {
+        const info = await ctx.fs.lstat(`${path}/${child.name}`, { cwd: scope.workspaceRoot }, signal)
+        if (!info || info.type !== child.type) throw new AtlasError('version_conflict', '占位目录含链接或读取期间发生变化')
+      }
+      return listing.entries
+    },
     async writeLayout(id, text, expectedVersion) {
       const path = mapPath(id, 'layout.json')
       const target = await boundary(path, id)
@@ -222,6 +237,58 @@ export function createHostFiles(
 
 const decode = (bytes: Uint8Array) =>
   new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+
+// 只识别插件可证明归属的创建占位；未知文件、成功结果、活动/恢复记录均不隐藏。
+export async function inspectCreatePlaceholder(port: MapFilePort, id: string, cleanupLock?: string) {
+  if (!port.listEntries || !await port.absent(mapPath(id, 'map.json'))) return undefined
+  const root = await port.listEntries(id, '.')
+  if (!root.some(e => e.name === '.transactions' && e.type === 'directory')) return undefined
+  if (root.some(e => e.name !== '.transactions' && !(e.name === 'notes' && e.type === 'directory'))) return undefined
+  if (root.some(e => e.name === 'notes') && (await port.listEntries(id, 'notes')).length) return undefined
+  const transactions = await port.listEntries(id, '.transactions')
+  const operations = transactions.filter(e => e.type === 'directory' && /^[A-Za-z0-9_-]+$/.test(e.name))
+  const discarded = transactions.some(e => e.name === 'discarded-create.json' && e.type === 'file')
+  if (operations.length !== 1 || transactions.length !== operations.length + (cleanupLock ? 1 : 0) + (discarded ? 1 : 0)) return undefined
+  if (cleanupLock) {
+    if (!transactions.some(e => e.name === 'active.json' && e.type === 'file')) return undefined
+    if (decode((await port.read(mapPath(id, '.transactions/active.json'), id)).bytes) !== cleanupLock) return undefined
+  }
+  const operationId = operations[0].name
+  const expectedId = 'map-' + (await digest(new TextEncoder().encode(JSON.stringify({operationId})))).slice(0, 32)
+  if (id !== expectedId) return undefined
+  const prefix = `.transactions/${operationId}`
+  const entries = await port.listEntries(id, prefix)
+  if (!entries.length && !discarded || entries.some(e => e.type !== 'file' || !['reservation.json', 'failed.json'].includes(e.name))) return undefined
+  let request: string | undefined
+  let state: 'reserved' | 'failed' | 'cleanup_pending' | 'discarded' = 'reserved'
+  if (discarded) {
+    const record = JSON.parse(decode((await port.read(mapPath(id, '.transactions/discarded-create.json'), id)).bytes))
+    if (!record || record.kind !== 'discarded_create' || record.mapId !== id || record.operationId !== operationId || typeof record.request !== 'string' || !/^[a-f0-9]{64}$/.test(record.request)) return undefined
+    request = record.request
+  }
+  for (const entry of entries) {
+    const raw = decode((await port.read(mapPath(id, `${prefix}/${entry.name}`), id)).bytes)
+    let value = raw
+    if (entry.name === 'failed.json') {
+      const failure = JSON.parse(raw)
+      if (!failure || failure.kind !== 'failed_create' || failure.operationId !== operationId || typeof failure.code !== 'string') return undefined
+      value = failure.request
+      state = 'failed'
+    }
+    if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value) || request !== undefined && request !== value) return undefined
+    request = value
+  }
+  // 中断在“写失败记录→删占位”之间时，不能声称占位已释放。
+  if (entries.some(e => e.name === 'reservation.json')) state = 'reserved'
+  if (discarded) state = entries.length ? 'cleanup_pending' : 'discarded'
+  if (!await port.absent(mapPath(id, 'map.json')) || !await port.absent(mapPath(id, '.transactions/purge.json'))) return undefined
+  if (!cleanupLock && !await port.absent(mapPath(id, '.transactions/active.json'))) return undefined
+  return { mapId: id, operationId, request: request!, state }
+}
+
+async function listedPlaceholder(port: MapFilePort, id: string) {
+  try { return await inspectCreatePlaceholder(port, id) } catch { return undefined }
+}
 export async function readSnapshot(
   port: MapFilePort,
   mapId: string,
@@ -365,12 +432,18 @@ export async function readSnapshot(
 // 管理目录只校验结构和活动标记；正文、资源及布局留到打开目标地图时完整加载。
 export async function listMapHeaders(port: MapFilePort, excluded: ReadonlySet<string> = new Set()): Promise<MapListing> {
   const ids = (await port.list()).filter(id => !excluded.has(id))
-  const entries: (MapListing['maps'][number] | Diagnostic)[] = new Array(ids.length)
+  const entries: (MapListing['maps'][number] | Diagnostic | undefined)[] = new Array(ids.length)
+  const incompleteCreates: NonNullable<MapListing['incompleteCreates']> = []
   let next = 0
   const worker = async () => {
     while (next < ids.length) {
       const index = next++; const id = ids[index]
       try {
+        const placeholder = await listedPlaceholder(port, id)
+        if (placeholder) {
+          if (placeholder.state !== 'discarded') incompleteCreates.push({mapId:id,operationId:placeholder.operationId,state:placeholder.state})
+          continue
+        }
         const inactive = async () => {
           if (!await port.absent(mapPath(id, '.transactions/active.json'))) throw new AtlasError('recovery_required', '地图正在提交或待恢复')
           if (!await port.absent(mapPath(id, '.transactions/purge.json'))) throw new AtlasError('purge_pending', '地图正在永久删除或已删除')
@@ -387,12 +460,17 @@ export async function listMapHeaders(port: MapFilePort, excluded: ReadonlySet<st
     }
   }
   await Promise.all(Array.from({ length: Math.min(4, ids.length) }, worker))
-  return { maps: entries.filter((entry): entry is MapListing['maps'][number] => 'id' in entry), diagnostics: entries.filter((entry): entry is Diagnostic => 'path' in entry) }
+  return { maps: entries.filter((entry): entry is MapListing['maps'][number] => !!entry && 'id' in entry), diagnostics: entries.filter((entry): entry is Diagnostic => !!entry && 'path' in entry), incompleteCreates: incompleteCreates.sort((a,b) => a.mapId.localeCompare(b.mapId)) }
 }
 export async function listMaps(port: MapFilePort): Promise<MapListing> {
-  const result: MapListing = { maps: [], diagnostics: [] }
+  const result: MapListing = { maps: [], diagnostics: [], incompleteCreates: [] }
   for (const id of await port.list()) {
     try {
+      const placeholder = await listedPlaceholder(port, id)
+      if (placeholder) {
+        if (placeholder.state !== 'discarded') result.incompleteCreates!.push({mapId:id,operationId:placeholder.operationId,state:placeholder.state})
+        continue
+      }
       const snap = await readSnapshot(port, id)
       result.maps.push({ id, title: snap.map.title })
     } catch (e) {

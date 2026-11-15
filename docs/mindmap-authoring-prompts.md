@@ -1,8 +1,12 @@
 # 运行时提示词编辑入口
 
+0.3.11补充：失败占位由插件处理；skill提醒模型不扫描或删除地图及事务文件，不把atlas_list.incompleteCreates当成可读取地图。仅用户明确要求时调用atlas_cleanup_create清理指定mapId/operationId并由宿主授权；手动入口在回收站标题右侧“未完成创建”。清理会作废旧请求，不自动重新建图。具体规则见[交付说明](validation/0.3.11.md)。
+
 插件内嵌的mindmap skill没有独立SKILL.md副本，正文和发现描述来自`src/server/prompts/authoring.ts`中的mindmapAuthoring/mindmapDescription；同目录`register.ts`只注册skill。0.3.9起使用DSH原生`/mindmap` skill入口，旧`/minimap`指令及其恢复子命令完全删除。提示词目录为`src/server/prompts/`，编辑后需重新构建安装包并在DSH更新插件。工具参数由`src/server/tools/schemas.ts`校验，修改文案不会改变schema。
 
 ## 0.3.9 使用流程与内容规则
+
+0.3.10补充：运行时skill已将新建与已有图阅读/修改拆成独立路径，明确新建无需列图查重；已有图身份未知时才列图定位，读图限于本次所需内容或用户指定参考。新增完整创建参数示例和字段语义：nodes/occurrences、relations/relationIds、notes正文映射及子图双向关联；centerNodeId不要求同时出现在子图画布。格式由skill及工具schema提供，不为学习格式读取其他地图、搜索源码或试建地图；用户明确要求复用已有内容时仍可读取。示例只在运行时正文维护，本文件不复制，实际效果见[0.3.10人工场景](validation/0.3.10.md)。
 
 在输入框输入`/`并选择`mindmap`，或直接填写`/mindmap 根据这些材料创建项目架构图`，继续编辑后手动发送。原生skill引用保留在草稿中，由宿主技能界面识别显示；选择或输入skill本身不调用模型，随需求发送时由宿主加载正文。输入框的引用表示已选择，实际创建/修改是否成功以atlas工具结果为准。目标DSH v0.2.2-rc.3的宿主需启用原生`dsh-client-ui-skill`与`dsh-tool-skill`；插件不自造同名命令或第二套输入框标记。当前内嵌skill无文件路径，宿主不会提供SKILL.md文件预览。
 

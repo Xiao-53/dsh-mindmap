@@ -24,3 +24,4 @@ export const createSchema = z.strictObject({ operationId: idSchema, content: con
 export const readSchema = z.strictObject({ mapId: idSchema, nodeIds: z.array(idSchema).optional(), viewIds: z.array(idSchema).optional(), query: z.string().optional(), cursor: z.string().optional() })
 export const previewSchema = z.strictObject({ mapId: idSchema, expectedFingerprint: z.string().min(1), changes: changesSchema })
 export const applySchema = previewSchema.extend({ operationId: idSchema, previewToken: z.string().optional() })
+export const cleanupCreateSchema = z.strictObject({ mapId: idSchema, operationId: idSchema })

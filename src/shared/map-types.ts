@@ -114,5 +114,6 @@ export interface MapEntry {
 export interface MapListing {
   maps: MapEntry[]
   diagnostics: Diagnostic[]
+  incompleteCreates?: { mapId: string; operationId: string; state: 'reserved' | 'failed' | 'cleanup_pending' }[]
   library?: import('./library.ts').LibraryState
 }

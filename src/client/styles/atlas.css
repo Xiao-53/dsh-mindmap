@@ -993,6 +993,15 @@
 .dsh-atlas .library-trash-toggle[aria-pressed=true] { color: #7e9299; }
 .dsh-atlas .library-trash-toggle:disabled { opacity: .45; cursor: default; }
 .dsh-atlas .library-scope { display: inline-flex; align-items: center; min-height: 30px; padding: 0 3px; gap: 3px; color: #968c7f; font-size: 12px; }
+.dsh-atlas .library-section-label { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.dsh-atlas .library-section-tab { border: 0; background: transparent; font: inherit; font-size: 12px; cursor: pointer; }
+.dsh-atlas .library-subentry { display: inline-flex; align-items: center; gap: 3px; padding: 4px 6px; border: 0; border-left: 1px solid #e5dfd6; background: transparent; color: #968c7f; font: inherit; font-size: 12px; cursor: pointer; }
+.dsh-atlas .library-section-tab[aria-pressed="true"], .dsh-atlas .library-subentry[aria-pressed="true"] { color: #627f8c; }
+.dsh-atlas .library-section-tab:disabled, .dsh-atlas .library-subentry:disabled { opacity: .4; cursor: default; }
+.dsh-atlas .library-incomplete-row { display: flex; align-items: center; gap: 10px; padding: 10px 8px; }
+.dsh-atlas .library-incomplete-row > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.dsh-atlas .library-incomplete-row small { display: block; margin-top: 3px; color: #968c7f; font-size: 11px; }
+.dsh-atlas .library-incomplete-row > button { flex-shrink: 0; }
 .dsh-atlas .library-checkbox { appearance: none; -webkit-appearance: none; color-scheme: light; box-sizing: border-box; padding: 0; border: 1px solid #c8c8c0; border-radius: 3px; background-color: #fff; background-position: center; background-size: 12px 12px; background-repeat: no-repeat; }
 .dsh-atlas .library-checkbox:checked { border-color: #8eaaaa; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='m2.5 6 2.2 2.2 4.8-4.8' fill='none' stroke='%23768f98' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
 .dsh-atlas .library-checkbox:indeterminate { border-color: #8eaaaa; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 6h6' stroke='%23768f98' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E"); }

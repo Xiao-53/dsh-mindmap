@@ -106,7 +106,7 @@ export function AtlasPane(props: AtlasPaneProps) {
     setLoading(true)
     return () => lifetime.current.abort()
   }, [refresh])
-  const libraryDependencies = [...listing.maps.map(map => map.id), ...listing.diagnostics.map(d => d.path)].sort().join('\n')
+  const libraryDependencies = [...listing.maps.map(map => map.id), ...(listing.incompleteCreates ?? []).map(item => item.mapId + ':' + item.state), ...listing.diagnostics.map(d => d.path)].sort().join('\n')
   useEffect(() => {
     if (selected || !tab.visible) return
     const onFocus = () => { void refresh() }
@@ -175,6 +175,11 @@ export function AtlasPane(props: AtlasPaneProps) {
     traversePages(e.button === 3 ? 'back' : 'forward')
   }} onAuxClickCapture={e => { if (e.button === 3 || e.button === 4) { e.preventDefault(); e.stopPropagation() } }}><MapLibrary listing={listing} loading={loading} error={error}
     refresh={() => { void refresh() }} open={open} trash={page.kind === 'trash'} setTrash={trash => visitPage({ kind: trash ? 'trash' : 'library' })}
+    cleanupCreate={async (mapId, operationId) => {
+      if (!listing.library || !props.host.cleanupCreate) throw new Error('清理入口尚未就绪，请重新载入后重试')
+      try { await props.host.cleanupCreate(mapId, operationId, listing.library.workspaceKey, lifetime.current.signal) }
+      finally { await refresh(true) }
+    }}
     purge={async ids => {
       if (!listing.library) throw new Error('目录尚未就绪，请重新载入后重试')
       let result

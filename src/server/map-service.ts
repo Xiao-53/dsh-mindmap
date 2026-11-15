@@ -1,4 +1,5 @@
 import { purgeMap } from './purge-map.ts'
+import { cleanupCreate } from './cleanup-create.ts'
 import { serializeMap } from './map-queue.ts'
 import { z } from 'zod'
 import type { Context } from '@deepseek-ai/cordis'
@@ -20,6 +21,7 @@ import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-session'
 const requestSchema = z.discriminatedUnion('op', [
   z.strictObject({ op: z.literal('list') }),
+  z.strictObject({ op: z.literal('cleanupCreate'), mapId: idSchema, operationId: idSchema, expectedWorkspaceKey: z.string().min(1) }),
   z.strictObject({ op: z.literal('purge'), mapIds: z.array(idSchema).min(1), version: z.string().nullable(), expectedWorkspaceKey: z.string().min(1) }),
   z.strictObject({ op: z.literal('rename'), mapId: idSchema, title: z.string().trim().min(1).max(120), previousTitle: z.string(), expectedWorkspaceKey: z.string().min(1) }),
   z.strictObject({ op: z.literal('create'), title: z.string().trim().min(1).max(120), expectedWorkspaceKey: z.string().min(1) }),
@@ -67,7 +69,7 @@ export class MapService extends TypertRemoteService {
       const key = `${workspaceFileScope.workspaceRoot}\0${'mapId' in req ? req.mapId : ''}`
       const run = async () => {
         signal.throwIfAborted()
-        const writes = req.op === 'purge' || req.op === 'rename' || req.op === 'create' || req.op === 'saveLibrary' || req.op === 'saveLayout'
+        const writes = req.op === 'cleanupCreate' || req.op === 'purge' || req.op === 'rename' || req.op === 'create' || req.op === 'saveLibrary' || req.op === 'saveLayout'
         const session = writes ? this.ctx.sessions.get(workspaceFileScope.sessionId) : undefined
         if (writes && !session) throw new AtlasError('session_unavailable', '来源会话未加载，无法保存')
         const policy = writes ? this.ctx.sandboxPolicy.resolve({ session }) : undefined
@@ -76,6 +78,7 @@ export class MapService extends TypertRemoteService {
           throw new AtlasError('workspace_changed', '会话写入工作区已变化')
         const port = createHostFiles(this.ctx, workspaceFileScope, signal, policy)
         const library = libraryFiles(this.ctx, workspaceFileScope, signal, policy)
+        if (req.op === 'cleanupCreate') return cleanupCreate(this.ctx, workspaceFileScope, req.mapId, req.operationId, policy!, signal)
         if (req.op === 'purge') {
           let current = await library.read()
           if (current.version !== req.version) throw new AtlasError('version_conflict', '目录已变化，请重新载入后再删除')

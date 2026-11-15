@@ -8,15 +8,17 @@ type Form = { kind: 'folder' | 'rename-folder' | 'rename-map'; id?: string; titl
 type Entry = { kind: 'map' | 'folder'; id: string }
 const entryKey = (entry: Entry) => `${entry.kind}:${entry.id}`
 const DRAG_TYPE = 'application/x-dsh-atlas-library'
-export function MapLibrary({ listing, loading, error, refresh, open, rename, save, purge, trash, setTrash }: {
+export function MapLibrary({ listing, loading, error, refresh, open, rename, save, purge, cleanupCreate, trash, setTrash }: {
   listing: MapListing; loading: boolean; error: string
   refresh: () => void; open: (id: string) => void
   rename: (id: string, title: string, previousTitle: string) => Promise<void>
   save: (data: Library) => Promise<void>
   purge: (ids: string[]) => Promise<void>
+  cleanupCreate: (mapId: string, operationId: string) => Promise<void>
   trash: boolean; setTrash: (trash: boolean) => void
 }) {
   const [query, setQuery] = useState('')
+  const [showIncomplete, setShowIncomplete] = useState(false)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [form, setForm] = useState<Form>()
   const [title, setTitle] = useState('')
@@ -39,6 +41,8 @@ export function MapLibrary({ listing, loading, error, refresh, open, rename, sav
   const trashMaps = [...deleted].filter(id => !purged.has(id)).map(id => listing.maps.find(m => m.id === id) ?? { id, title: data.deletedMapTitles?.[id] ?? id })
   const maps = trash ? trashMaps : activeMaps
   const needle = query.trim().toLocaleLowerCase()
+  const incomplete = listing.incompleteCreates ?? []
+  const visibleIncomplete = incomplete.filter(item => !needle || [item.mapId,item.operationId].some(value => value.toLocaleLowerCase().includes(needle)))
   const folderMatches = (id?: string): boolean => {
     while (id) { const folder = data.folders.find(f => f.id === id); if (!folder) break; if (folder.title.toLocaleLowerCase().includes(needle)) return true; id = folder.parentId ?? undefined }
     return false
@@ -55,7 +59,7 @@ export function MapLibrary({ listing, loading, error, refresh, open, rename, sav
   const selection = useRef<HTMLInputElement>(null)
   useEffect(() => { setSelected(new Set()); setMenu(undefined); setForm(undefined) }, [query])
   useEffect(() => { if (selection.current) selection.current.indeterminate = chosen.length > 0 && !allSelected }, [chosen.length, allSelected])
-  useEffect(() => { setSelected(new Set()); setSelecting(false); setMenu(undefined); setForm(undefined); setFailure(''); setNotice('') }, [listing.library?.workspaceKey, trash])
+  useEffect(() => { setSelected(new Set()); setSelecting(false); setMenu(undefined); setForm(undefined); setFailure(''); setNotice(''); setShowIncomplete(false) }, [listing.library?.workspaceKey, trash])
   useEffect(() => {
     const dismiss = (event: PointerEvent) => {
       if (event.target instanceof Element && !event.target.closest('.library-menu-anchor')) setMenu(undefined)
@@ -79,6 +83,11 @@ export function MapLibrary({ listing, loading, error, refresh, open, rename, sav
     try { await work(); setSelected(new Set()); if (success) setNotice(success) }
     catch (e) { setFailure(e instanceof Error ? e.message : String(e)) }
     finally { busyRef.current = false; setBusy(false) }
+  }
+  const selectTrashSection = (incomplete: boolean) => {
+    if (showIncomplete === incomplete) return
+    setShowIncomplete(incomplete); setQuery(''); setSelected(new Set()); setSelecting(false)
+    setMenu(undefined); setForm(undefined); setFailure(''); setNotice('')
   }
   const toggle = (entry: Entry) => setSelected(old => { const next = new Set(old); const key = entryKey(entry); if (next.has(key)) next.delete(key); else next.add(key); return next })
   const checkbox = (entry: Entry, name: string) => selecting ? <input className="library-checkbox" type="checkbox" aria-label={`选择${name}`} checked={selected.has(entryKey(entry))} disabled={disabled} onChange={() => toggle(entry)} /> : null
@@ -172,13 +181,16 @@ export function MapLibrary({ listing, loading, error, refresh, open, rename, sav
   return <div ref={page} className="dsh-atlas library-page" aria-busy={loading || busy} onKeyDown={e => { if (e.key === 'Escape') { if (menu || form) { setMenu(undefined); menuTrigger.current?.focus(); if (!busy) setForm(undefined) } else if (query) { e.preventDefault(); setQuery('') } } }}>
     <header className="library-header"><div className="library-brand"><LibraryGlyph /><h1>思维导图</h1></div><button className="library-trash-toggle" title={trash ? '返回全部导图' : `回收站（${trashMaps.length}）`} aria-label={trash ? '返回全部导图' : '回收站'} aria-pressed={trash} disabled={busy} onClick={() => setTrash(!trash)}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7" /></svg></button></header>
     <div className="library-scroll">
-      <label className="library-search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></svg><input type="search" aria-label={trash ? '搜索回收站' : '搜索导图或文件夹'} placeholder={trash ? '搜索回收站…' : '搜索导图或文件夹…'} value={query} disabled={busy} onChange={e => setQuery(e.target.value)} /></label>
+      <label className="library-search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></svg><input type="search" aria-label={trash && showIncomplete ? '搜索未完成创建' : trash ? '搜索回收站' : '搜索导图或文件夹'} placeholder={trash && showIncomplete ? '搜索未完成创建…' : trash ? '搜索回收站…' : '搜索导图或文件夹…'} value={query} disabled={busy} onChange={e => setQuery(e.target.value)} /></label>
       {(error || failure) && <div className="status-region" role="alert">{error || failure}<br /><button className="library-text-button" disabled={busy} onClick={refresh}>重新载入</button></div>}
-      <div className="library-section" {...dropProps('')}><span className="library-scope">{trash ? '回收站' : '全部导图'}<small>{trash ? trashMaps.length : activeMaps.length}</small></span>
+      <div className="library-section" {...dropProps('')}><div className="library-section-label">
+        {trash ? <button type="button" className="library-scope library-section-tab" aria-pressed={!showIncomplete} disabled={busy} onClick={() => selectTrashSection(false)}>回收站<small>{trashMaps.length}</small></button> : <span className="library-scope">全部导图<small>{activeMaps.length}</small></span>}
+        {trash && <button type="button" className="library-subentry" aria-pressed={showIncomplete} disabled={busy} onClick={() => selectTrashSection(true)}>未完成创建<small>{incomplete.length}</small></button>}
+      </div>
         <div className="library-section-tools">
           {!trash && <button className="library-text-button" disabled={disabled} onClick={() => begin({ kind: 'folder', title: '' })}>＋ 文件夹</button>}
-          {!!available.length && <button className="library-text-button" aria-pressed={selecting} disabled={busy} onClick={() => { setSelecting(!selecting); setSelected(new Set()); setMenu(undefined) }}>{selecting ? '完成' : '选择'}</button>}
-          {trash && !!trashMaps.length && <div className="library-menu-anchor"><button className="library-more" aria-label="回收站选项" aria-haspopup="menu" aria-expanded={menu === 'trash-all'} disabled={disabled} onClick={e => { menuTrigger.current = e.currentTarget; setMenuAbove(false); setMenu(menu === 'trash-all' ? undefined : 'trash-all') }}>···</button>
+          {!(trash && showIncomplete) && !!available.length && <button className="library-text-button" aria-pressed={selecting} disabled={busy} onClick={() => { setSelecting(!selecting); setSelected(new Set()); setMenu(undefined) }}>{selecting ? '完成' : '选择'}</button>}
+          {trash && !showIncomplete && !!trashMaps.length && <div className="library-menu-anchor"><button className="library-more" aria-label="回收站选项" aria-haspopup="menu" aria-expanded={menu === 'trash-all'} disabled={disabled} onClick={e => { menuTrigger.current = e.currentTarget; setMenuAbove(false); setMenu(menu === 'trash-all' ? undefined : 'trash-all') }}>···</button>
             {menu === 'trash-all' && <div className="library-entry-menu" role="menu"><button autoFocus role="menuitem" disabled={!trashMaps.some(m => !purging.has(m.id))} onClick={() => { void restore(trashMaps.map(m => m.id)) }}>全部还原</button><button role="menuitem" className="danger" onClick={() => { void permanentlyRemove(trashMaps.map(m => m.id)) }}>清空回收站</button></div>}
           </div>}
         </div>
@@ -188,7 +200,7 @@ export function MapLibrary({ listing, loading, error, refresh, open, rename, sav
         <div className="library-batch-tools">{trash && <button className="library-text-button" disabled={disabled || !chosen.some(e => !purging.has(e.id))} onClick={() => { void restore(chosen.map(e => e.id)) }}>还原</button>}<button className="library-text-button danger" disabled={disabled || !chosen.length} onClick={() => { if (trash) void permanentlyRemove(chosen.map(e => e.id)); else void remove(chosen) }}>{trash ? '永久删除' : '删除'}</button></div>
       </div>}
       {notice && <p className="library-notice" role="status">{notice}</p>}
-      {loading ? <p role="status">正在读取目录…</p> : trash ? <ul className="library-tree">{visibleMaps.map(mapRow)}{!visibleMaps.length && <li className="library-folder-empty">{needle ? '没有匹配的导图' : '回收站为空'}</li>}</ul> : <div className={dropTarget === '' ? 'library-drop-target' : ''} {...dropProps('')}>{branch(null)}{needle && !visibleMaps.length && !visibleFolders.size && <p className="library-folder-empty">没有匹配的导图或文件夹</p>}</div>}
+      {loading ? <p role="status">正在读取目录…</p> : trash && showIncomplete ? <ul className="library-tree">{visibleIncomplete.map(item => <li key={item.mapId} className="library-incomplete-row"><LibraryGlyph file /><div><span>{item.operationId}</span><small>{item.state === 'cleanup_pending' ? '清理未完成，可继续清理' : item.state === 'failed' ? '创建失败，尚未生成地图' : '尚未生成地图'} · {item.mapId}</small></div><button type="button" className="library-text-button danger" disabled={disabled} title="清理记录并作废原创建请求" aria-label={`清理未完成创建 ${item.operationId}`} onClick={() => { void run(() => cleanupCreate(item.mapId,item.operationId)) }}>{item.state === 'cleanup_pending' ? '继续清理' : '清理'}</button></li>)}{!visibleIncomplete.length && <li className="library-folder-empty">{needle ? '没有匹配的创建记录' : '没有未完成创建'}</li>}</ul> : trash ? <ul className="library-tree">{visibleMaps.map(mapRow)}{!visibleMaps.length && <li className="library-folder-empty">{needle ? '没有匹配的导图' : '回收站为空'}</li>}</ul> : <div className={dropTarget === '' ? 'library-drop-target' : ''} {...dropProps('')}>{branch(null)}{needle && !visibleMaps.length && !visibleFolders.size && <p className="library-folder-empty">没有匹配的导图或文件夹</p>}</div>}
       {!loading && !needle && !trash && !activeMaps.length && !data.folders.length && <section className="library-empty"><LibraryGlyph /><h2>暂无思维导图</h2><p>在输入框选择 /mindmap skill，填写创建需求后手动发送，导图会显示在这里。</p></section>}
       {!!listing.diagnostics.length && <details className="library-diagnostics"><summary>有 {listing.diagnostics.length} 项未能载入</summary>{listing.diagnostics.map(d => <p key={d.path}>{d.path}：{d.message}</p>)}</details>}
     </div>

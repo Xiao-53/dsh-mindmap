@@ -5,15 +5,16 @@ import type { ToolExecution, ParameterSchemaSpec } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
-import { createHostFiles, listMaps, readSnapshot, mapPath, AtlasError, errorCode } from '../map-files.ts'
+import { createHostFiles, inspectCreatePlaceholder, listMaps, readSnapshot, mapPath, AtlasError, errorCode } from '../map-files.ts'
 import { libraryFiles } from '../library-files.ts'
 import { digest } from '../../shared/fingerprint.ts'
 import { fillLayout } from '../../shared/layout.ts'
 import { validateMap } from '../../shared/validate-map.ts'
 import { candidate } from './candidate.ts'
-import { transactionPort } from './storage.ts'
+import { transactionPort, releaseFailedCreate } from './storage.ts'
 import { Transactions } from '../transaction.ts'
-import { createSchema, readSchema, previewSchema, applySchema } from './schemas.ts'
+import { cleanupCreate } from '../cleanup-create.ts'
+import { createSchema, readSchema, previewSchema, applySchema, cleanupCreateSchema } from './schemas.ts'
 import type { MapFilePort } from '../map-files.ts'
 import type { MapSnapshot } from '../../shared/map-types.ts'
 const text = (value: unknown) => JSON.stringify(value,null,2)+'\n'
@@ -47,7 +48,14 @@ export function registerTools(ctx: Context) {
       const listing = await listMaps(port)
       const library = (await libraryFiles(ctx,scope,exec.signal).read()).data
       const deleted = [...(library.deletedMapIds ?? []), ...(library.purgedMapIds ?? [])]
-      return {status:'success',maps:listing.maps.filter(m => !deleted.includes(m.id)),diagnostics:listing.diagnostics.filter(d => !(library.purgedMapIds ?? []).includes(d.path.split('/')[1]))}
+      return {status:'success',maps:listing.maps.filter(m => !deleted.includes(m.id)),diagnostics:listing.diagnostics.filter(d => !(library.purgedMapIds ?? []).includes(d.path.split('/')[1])),incompleteCreates:listing.incompleteCreates}
+    }
+    if(name === 'atlas_cleanup_create') {
+      const args = cleanupCreateSchema.parse(raw)
+      if(policy.mode === 'read-only') throw new AtlasError('permission_denied','只读会话不能清理创建记录')
+      const outcome = await ctx.approval.request({agent:exec.agent!,toolName:name,callId:exec.callId,reason:`清理未完成创建 ${args.mapId}，作废原请求 ${args.operationId}；不会删除完整地图。`,signal:exec.signal})
+      if(outcome !== 'allowed-once') throw new AtlasError('approval_required','清理未获宿主授权')
+      return cleanupCreate(ctx,scope,args.mapId,args.operationId,policy,exec.signal)
     }
     const args: any = (name === 'atlas_read' ? readSchema : name === 'atlas_create' ? createSchema : name === 'atlas_preview' ? previewSchema : applySchema).parse(raw)
     const request = await hash(args)
@@ -56,15 +64,17 @@ export function registerTools(ctx: Context) {
     if(libraryState.deletedMapIds?.includes(mapId) || libraryState.purgedMapIds?.includes(mapId)) throw new AtlasError('map_deleted','导图已在回收站')
     const txPort = transactionPort(ctx,scope,mapId,policy)
     const tx = new Transactions(txPort,owner)
+    if(await txPort.read('.transactions/discarded-create.json')) throw new AtlasError('create_discarded','此创建请求已被清理并作废；如需重新创建，请使用新的operationId')
     if(name === 'atlas_create' || name === 'atlas_apply') { const replay = await tx.replay(args.operationId,request); if(replay !== undefined) return replay }
     if(name === 'atlas_create') {
       if(policy.mode === 'read-only') throw new AtlasError('permission_denied','当前会话为只读')
       const reservationPath = `.transactions/${args.operationId}/reservation.json`
       const reservation = await txPort.read(reservationPath)
       if(reservation && reservation.text !== request) throw new AtlasError('operation_conflict','创建请求ID已用于其他内容')
-      if(!reservation) {
-        if((await port.list()).includes(mapId)) throw new AtlasError('unknown_directory','不接管已有未知目录')
-        await txPort.put(reservationPath,request,null)
+      const failed = await txPort.read(`.transactions/${args.operationId}/failed.json`)
+      if(failed) {
+        const record = JSON.parse(failed.text)
+        if(!record || record.kind !== 'failed_create' || record.operationId !== args.operationId || record.request !== request) throw new AtlasError('operation_conflict','失败创建请求ID已用于其他内容或记录无效')
       }
     }
     let snapshot: MapSnapshot | undefined
@@ -115,15 +125,47 @@ export function registerTools(ctx: Context) {
       }
     }
 
+    // 完整候选（含正文资源）校验通过后才占目录；无效参数不产生新目录。
+    let reservationReady = false
+    try {
+    if(name === 'atlas_create') {
+      exec.signal.throwIfAborted()
+      if(await txPort.read('.transactions/discarded-create.json')) throw new AtlasError('create_discarded','创建请求已被清理并作废，停止占位')
+      const path = `.transactions/${args.operationId}/reservation.json`
+      const reservation = await txPort.read(path)
+      if(reservation && reservation.text !== request) throw new AtlasError('operation_conflict','创建请求ID已用于其他内容')
+      if((await port.list()).includes(mapId)) {
+        const placeholder = await inspectCreatePlaceholder(port, mapId)
+        if(!placeholder || placeholder.state === 'discarded' || placeholder.state === 'cleanup_pending' || placeholder.operationId !== args.operationId || placeholder.request !== request) throw new AtlasError('unknown_directory','不接管已有未知目录、已清理或非空创建目录')
+      }
+      reservationReady = true
+      if(!reservation) await txPort.put(path,request,null)
+    }
     const mutations=[]
     for(const [path,after] of files) { const before=await txPort.read(path); if((before?.text ?? null)!==after) mutations.push({path,before,after}) }
     const result={status:'success',operationId:args.operationId,mapId,affectedIds:proposal.affectedIds,summary:name==='atlas_create'?'思维导图已创建':'变更已保存'}
     const saved=await tx.commit(args.operationId,request,mutations,result,async()=>{
       exec.signal.throwIfAborted()
+      if(await txPort.read('.transactions/discarded-create.json')) throw new AtlasError('create_discarded','创建请求已被清理并作废，停止提交')
       if(snapshot) { const live=await readSnapshot({...port,absent:async path=>path===mapPath(mapId,'.transactions/active.json')?true:port.absent(path)},mapId); if(live.fingerprint!==snapshot.fingerprint) throw new AtlasError('version_conflict','提交前版本变化') }
       else if(!await port.absent(mapPath(mapId,'map.json'))) throw new AtlasError('version_conflict','创建目标已存在')
     },async()=>({...result,fingerprint:(await readSnapshot({...port,absent:async path=>path===mapPath(mapId,'.transactions/active.json')?true:port.absent(path)},mapId)).fingerprint}))
     return saved
+    } catch(e) {
+      if(reservationReady && errorCode(e) !== 'recovery_required') {
+        try {
+          if(!await releaseFailedCreate(ctx,scope,mapId,args.operationId,request,policy,errorCode(e))) {
+            throw new Error('发现未知内容或活动状态，保留创建资料')
+          }
+        } catch(cleanup) {
+          throw new AtlasError(errorCode(e),String(e),[
+            ...(e instanceof AtlasError ? e.diagnostics : []),
+            {path:mapPath(mapId,'.'),code:'cleanup_incomplete',message:`创建清理未完成，原资料保留：${String(cleanup)}`},
+          ])
+        }
+      }
+      throw e
+    }
   }
   for(const [name,schema,description] of [
     ['atlas_list',z.strictObject({}),'列出当前工作区有效思维导图。'],
@@ -131,6 +173,7 @@ export function registerTools(ctx: Context) {
     ['atlas_create',createSchema,'创建通用思维导图：架构设计、知识整理等。只提供内容和Markdown，不提供路径、布局或界面代码。'],
     ['atlas_preview',previewSchema,'预览有序变更及删除影响，不保存。'],
     ['atlas_apply',applySchema,'条件提交最小变更；删除须当前版本预览与宿主授权。相同请求重试复用operationId。'],
+    ['atlas_cleanup_create',cleanupCreateSchema,'用户要求清理时，清理atlas_list.incompleteCreates中的指定记录并作废原创建请求；须宿主授权。拒绝完整地图、未知内容与活动事务，不接受任意路径。'],
   ] as const) ctx.tools.register(defineTool({name,description,parameters:parameters(schema),output:{schema:{type:'json'},render:(_args,value)=>[{type:'text',text:JSON.stringify(value)}]},async execute(args,exec) { try{
       const {scope} = await binding(exec)
       const parsed = args as any

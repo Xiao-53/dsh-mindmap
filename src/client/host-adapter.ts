@@ -7,6 +7,7 @@ import type { MapSnapshot, MapLayout, MapListing } from '../shared/map-types.ts'
 import { watchPaths } from '../server/watch-map.ts'
 import type { LibraryState, MapLibrary } from '../shared/library.ts'
 export interface HostAdapter {
+  cleanupCreate?(mapId: string, operationId: string, workspaceKey: string, signal: AbortSignal): Promise<void>
   watchLibrary?(listing: MapListing, changed: (externalChange?: boolean) => void, signal: AbortSignal): () => void
   purge(mapIds: string[], previous: LibraryState, signal: AbortSignal): Promise<{ deletedIds: string[]; failures: { id: string; message: string }[]; library: LibraryState }>
   rename(mapId: string, title: string, previousTitle: string, workspaceKey: string, signal: AbortSignal): Promise<void>
@@ -55,6 +56,7 @@ export function createHostAdapter(
     return body.value
   }
   return {
+    cleanupCreate: async (mapId, operationId, expectedWorkspaceKey, signal) => { await call({op:'cleanupCreate',mapId,operationId,expectedWorkspaceKey},signal) },
     watchLibrary(listing, changed, signal) {
       const controller = new AbortController()
       const stop = () => controller.abort()
@@ -63,7 +65,7 @@ export function createHostAdapter(
       let timer: ReturnType<typeof setTimeout> | undefined
       let initialCheck = false
       let contentChanged = false
-      const ids = new Set([...listing.maps.map(map => map.id), ...listing.diagnostics.map(d => d.path.split('/')[1]).filter(id => id && /^[A-Za-z0-9_-]+$/.test(id))])
+      const ids = new Set([...listing.maps.map(map => map.id), ...(listing.incompleteCreates ?? []).map(item => item.mapId), ...listing.diagnostics.map(d => d.path.split('/')[1]).filter(id => id && /^[A-Za-z0-9_-]+$/.test(id))])
       const paths = new Set(['.', 'dsh-knowledge-maps', 'dsh-knowledge-maps/library.json'])
       for (const id of ids) for (const path of ['', '/map.json', '/.transactions', '/.transactions/active.json', '/.transactions/purge.json']) paths.add(`dsh-knowledge-maps/${id}${path}`)
       for (const path of paths) void (async () => {
