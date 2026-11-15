@@ -55,3 +55,7 @@ dsh plugin --profile <当前profile> add <安装包的绝对路径>/dsh-mindmap-
 当前版本为 **0.3.9**，新增的原生 `/mindmap` 入口及模型实际效果仍待人工验收。人工编辑器、撤销和显式重排暂缓。
 
 更多说明：[开发与安装](docs/plugin-development.md) · [存储格式](docs/mindmap-storage-format.md) · [当前版本验收](docs/validation/0.3.9.md)
+
+## 许可证
+
+[MIT License](LICENSE)
