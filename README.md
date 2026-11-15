@@ -19,24 +19,20 @@
 - Node.js `>=24.9.0`（从源码构建时需要）。
 - 使用 `/mindmap` 需在宿主中启用 `dsh-client-ui-skill` 和 `dsh-tool-skill`。
 
-## 构建与安装
+## 安装
 
-克隆项目并在 PowerShell 中执行：
+直接把下面这段话发给 DSH，让它帮你安装：
 
-```powershell
-git clone https://github.com/Xiao-53/dsh-mindmap.git
-cd dsh-mindmap
-npm ci
-npm run pack:plugin
+```text
+请帮我安装 dsh-mindmap 思维导图插件。
+项目地址：https://github.com/Xiao-53/dsh-mindmap
+请从 GitHub 最新 Release 下载 .tgz 安装包，安装到我当前使用的 DSH profile，
+保留已有配置，并在完成后告诉我是否需要重启或重新加载。
 ```
 
-当前版本生成 `dsh-mindmap-0.3.9.tgz`。使用已有 DSH 的 CLI 安装，将下面的 profile 和路径替换为实际值：
+安装完成并按提示重启或重新加载后，在原生右侧栏中打开“思维导图”。
 
-```powershell
-dsh plugin --profile <当前profile> add <安装包的绝对路径>/dsh-mindmap-0.3.9.tgz
-```
-
-按原有启动方式重启或重新加载插件，然后在原生右侧栏中打开“思维导图”。
+也可以前往 [最新 Release](https://github.com/Xiao-53/dsh-mindmap/releases/latest) 下载安装包。仓库保留源码，安装包通过 Release 提供。
 
 ## 使用
 
@@ -53,8 +49,6 @@ dsh plugin --profile <当前profile> add <安装包的绝对路径>/dsh-mindmap-
 ## 当前状态
 
 当前版本为 **0.3.9**，新增的原生 `/mindmap` 入口及模型实际效果仍待人工验收。人工编辑器、撤销和显式重排暂缓。
-
-更多说明：[开发与安装](docs/plugin-development.md) · [存储格式](docs/mindmap-storage-format.md) · [当前版本验收](docs/validation/0.3.9.md)
 
 ## 许可证
 
