@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f6f2e9">
+<title>知序 · 知识地图侧边栏原型 v12</title>
+<style>
+  :root{--paper:#f6f2e9;--paper2:#f1ecdf;--canvas:#faf7ef;--surface:#fffdf8;--ink:#302e2a;--muted:#817e75;--line:#e5dfd2;--line2:#d8d0bf;--accent:#a96649;--accent2:#efdfd0;--sage:#668774;--sageBg:#eaf0e8;--blue:#607e92;--blueBg:#e8eef2;--plum:#8a7590;--plumBg:#f0e9f0;--gold:#ac8a51;--goldBg:#f5eedc;--shadow:0 14px 42px rgba(77,59,35,.06),0 2px 8px rgba(65,52,33,.035)}
+  *{box-sizing:border-box}
+  html,body{margin:0;width:100%;height:100%;font-family:Inter,"SF Pro Display","PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:var(--paper);color:var(--ink);overflow:hidden;-webkit-font-smoothing:antialiased}
+  button,input,textarea{font:inherit}
+  button{cursor:pointer}
+  button:focus-visible,input:focus-visible{outline:3px solid #c6a990;outline-offset:2px}
+  .shell{height:100%;display:flex;flex-direction:column;padding:10px;gap:0;min-width:0}
+
+  .workspace{min-height:0;min-width:0;flex:1;display:flex;position:relative}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column;border-radius:16px;background:var(--canvas);border:1px solid #e9e1d3;overflow:hidden;box-shadow:var(--shadow);position:relative}
+  .map-header{padding:16px 22px 13px;background:rgba(255,253,248,.88);border-bottom:1px solid #eae4d9;z-index:3;flex:0 0 auto}
+  .head-top{display:flex;align-items:center;justify-content:space-between;gap:20px}.head-title{min-width:0}.head-title h1{font-size:23px;letter-spacing:-.65px;font-weight:760;margin:3px 0 7px}.head-sub{color:#918a7d;font-size:13px;line-height:1.55}.head-tools{display:flex;align-items:center;gap:7px;flex-shrink:0}
+  .count-pill{font-size:11px;border:1px solid #ece2d1;color:#8a7c67;border-radius:99px;background:#faf5ec;padding:8px 11px}.count-pill strong{font-weight:750;color:#866047}
+  .crumbbar{display:flex;align-items:center;gap:5px;margin-top:14px;white-space:nowrap;overflow:auto;scrollbar-width:none}.crumbbar::-webkit-scrollbar{display:none}.crumb{background:transparent;border:0;color:#aa9d8b;font-size:12px;padding:4px 5px;white-space:nowrap}.crumb:hover{color:#a56447}.crumb.current{color:#5f5549;font-weight:700}.chev{color:#c8bbab;font-size:13px;margin:0 2px}
+  .map-wrap{position:relative;flex:1;min-height:0;overflow:hidden;background-color:#f8f5ed;background-image:radial-gradient(#d3cabb 0.85px,transparent 0.85px);background-size:23px 23px;cursor:grab;touch-action:none;user-select:none}.map-wrap.grabbing{cursor:grabbing}
+  .map-scene{position:absolute;left:0;top:0;width:1140px;height:800px;transform-origin:0 0;will-change:transform;transition:transform .45s cubic-bezier(.22,.8,.2,1),opacity .22s;z-index:1}.map-scene.transition-ghost{z-index:3;pointer-events:none;filter:none}
+  .group-area{position:absolute;border-radius:17px;border:1px solid rgba(151,125,94,.22);background:rgba(255,253,248,.52);box-shadow:0 1px 3px #6f60450a inset;pointer-events:none}
+  .group-area:before{content:"";position:absolute;width:3px;height:32px;background:var(--group-color);opacity:.6;top:20px;left:-1px;border-radius:3px}.group-title{position:absolute;top:17px;left:22px;font-size:12px;color:#70675b;font-weight:720;letter-spacing:.4px}.group-title span{font:700 10px/1 Inter,system-ui,sans-serif;letter-spacing:1px;color:var(--group-color);margin-right:9px}.group-sub{position:absolute;right:20px;top:20px;font-size:10px;color:#aea293}
+  .edges{position:absolute;width:100%;height:100%;pointer-events:none;overflow:visible}.edge{fill:none;stroke-width:2;opacity:.76;stroke-linecap:round;stroke-linejoin:round}.edge.secondary{stroke-width:1.8;stroke-dasharray:6 6;opacity:.58}.edge-label{font-size:10px;font-weight:630;fill:#796e60;paint-order:stroke;stroke:#faf7ef;stroke-width:6px;stroke-linejoin:round}
+  .node{position:absolute;display:flex;align-items:flex-start;gap:11px;min-height:86px;padding:15px 15px 13px 14px;border-radius:13px;background:rgba(255,253,248,.98);border:1.5px solid var(--node-border);box-shadow:0 8px 25px #5f4d330d,0 2px 5px #5f4d3309;cursor:pointer;text-align:left;transition:box-shadow .16s,transform .16s,border-color .16s;user-select:none;color:#39352f}.node:hover{box-shadow:0 12px 27px #57432c20,0 0 0 3px var(--node-wash);border-color:var(--node-accent)}.node:active{transform:translateY(0)}.node:focus-visible{outline:3px solid #bd9e83;outline-offset:3px}
+  /* Each visual connection has its own actual attachment point on the card border. */
+  /* Ports are colored by direction, independent of each connection line. */
+  .node-port{position:absolute;width:7px;height:7px;border-radius:50%;transform:translate(-50%,-50%);border:1px solid var(--port-color);background:var(--port-color);box-shadow:0 0 0 1.5px #fffdf8;pointer-events:none;z-index:3}
+  .node-port.in{--port-color:#8699aa}
+  .node-port.out{--port-color:#b38c97;background:#fffdf8;border-width:2px}
+  .node-title,.node-desc{display:block}.node .node-icon{flex-shrink:0;display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:var(--node-wash);color:var(--node-accent)}.node .node-icon svg{width:15px;height:15px;stroke-width:1.9}.node-copy{flex:1;min-width:0}.node-title{font-size:17px;font-weight:745;letter-spacing:-.3px;line-height:1.2}.node-desc{font-size:13px;color:#989083;line-height:1.5;margin-top:6px;white-space:normal}.node-foot{font-size:10.5px;color:var(--node-accent);font-weight:680;margin-top:10px;display:flex;align-items:center;gap:4px}.node-foot svg{width:11px;height:11px}.node .node-hint{position:absolute;right:10px;top:13px;color:#c6b9a6}.node .node-hint svg{width:13px;height:13px}.node.leaf{min-height:80px}.node.leaf .node-foot{color:#aaa092}
+  .node.selected{border-color:var(--node-accent);box-shadow:0 0 0 3px var(--node-wash),0 15px 34px #604b3420}
+  .floating-tag{position:absolute;display:flex;align-items:center;gap:6px;top:19px;left:22px;background:rgba(255,253,249,.94);border:1px solid #e9e1d6;border-radius:99px;padding:9px 13px;z-index:2;box-shadow:0 4px 15px #574a3610;color:#857766;font-size:12px;pointer-events:none}.floating-tag .tag-dot{width:7px;height:7px;background:#b47e5d;border-radius:50%}.floating-tag strong{color:#605449;font-weight:710}
+  .canvas-tools{position:absolute;z-index:4;right:18px;bottom:18px;display:flex;align-items:center;gap:4px;padding:5px;background:#fffdf9;border:1px solid #e8dfd1;box-shadow:0 6px 18px #69553c14;border-radius:12px}.canvas-tools button{background:transparent;border:0;min-width:33px;height:30px;color:#796d5f;font-size:12px;font-weight:650;border-radius:7px;padding:0 6px}.canvas-tools button:hover{background:#f3eadf;color:#86563e}.canvas-tools .separator{height:18px;width:1px;background:#e8dfd1;margin:0 2px}.canvas-tools .zoom-label{font-size:11px;min-width:42px;color:#85796b;text-align:center;font-variant-numeric:tabular-nums}
+  .map-bottom{position:absolute;left:20px;bottom:24px;z-index:2;display:flex;align-items:center;gap:13px;color:#aaa092;font-size:11px;pointer-events:none}.map-bottom span{display:flex;align-items:center;gap:6px}.map-bottom svg{width:13px;height:13px}
+  .legend{position:absolute;bottom:19px;left:20px;display:flex;gap:14px;z-index:2;background:rgba(250,247,239,.8);padding:9px 12px;border-radius:9px;pointer-events:none}.legend-item{font-size:12px;color:#999080;display:flex;align-items:center;gap:6px}.legend-line{width:19px;height:0;border-top:2px solid #91a694;position:relative}.legend-line:after{content:"";position:absolute;right:-1px;top:-4px;border-left:5px solid #91a694;border-top:3px solid transparent;border-bottom:3px solid transparent}.legend-line.secondary{border-top:2px dashed #b79a78}.legend-line.secondary:after{border-left-color:#b79a78}
+  .inspector{position:absolute;z-index:10;right:16px;top:16px;bottom:69px;width:320px;max-width:calc(100% - 32px);background:#fffefa;border:1px solid #e3d9c9;border-radius:15px;box-shadow:0 20px 65px #5946302b,0 2px 5px #5946300c;display:flex;flex-direction:column;transform:translateX(calc(100% + 30px));opacity:0;pointer-events:none;transition:transform .35s cubic-bezier(.22,.8,.2,1),opacity .2s;overflow:hidden}
+  .inspector.open{transform:translateX(0);opacity:1;pointer-events:auto}.inspector-head{padding:20px 19px 14px;border-bottom:1px solid #ece5d9;flex-shrink:0}.inspector-flag{font-size:10px;color:#a27e62;font-weight:700;letter-spacing:1px;display:flex;justify-content:space-between;align-items:center}.inspector-flag button{border:0;background:transparent;color:#9b9285;font-size:20px;line-height:1;cursor:pointer}.inspector h2{font-size:22px;margin:11px 0 8px;line-height:1.25;letter-spacing:-.3px}.inspector-intro{font-size:14px;line-height:1.85;color:#897f72}.inspector-body{padding:17px 19px;overflow:auto;flex:1;scrollbar-width:thin;scrollbar-color:#e0d7c8 transparent}.detail-section{margin-bottom:20px}.detail-label{font-size:11px;font-weight:760;color:#9b7257;letter-spacing:.5px;margin-bottom:9px;display:flex;gap:8px;align-items:center}.detail-label:before{content:"";width:4px;height:12px;background:#c9a184;border-radius:3px}.detail-body{font-size:14px;line-height:1.9;color:#61574c;white-space:pre-line}.formula{background:#f5f0e6;border:1px solid #ece2d2;border-radius:9px;padding:14px 12px;font-family:Georgia,"Times New Roman",serif;font-size:16px;color:#675542;text-align:center;line-height:1.5}.example-card{font-size:14px;line-height:1.85;padding:12px;background:#f2f5ef;border:1px solid #e4ebdf;border-radius:10px;color:#5e7260}.note-card{font-size:14px;line-height:1.8;padding:12px;background:#fbf5e9;border:1px solid #efe4cb;border-radius:10px;color:#89704c}.detail-footer{flex-shrink:0;border-top:1px solid #ece5d9;padding:13px 17px;display:flex;gap:8px}.detail-footer .btn{flex:1}
+  .toast{position:absolute;z-index:30;left:50%;bottom:65px;transform:translate(-50%,12px);padding:10px 15px;border-radius:9px;background:#49433b;color:white;font-size:12px;opacity:0;pointer-events:none;transition:opacity .55s ease,transform .55s ease;white-space:normal;max-width:calc(100% - 28px);text-align:center;min-width:180px}.toast.on{opacity:1;transform:translate(-50%,0)}
+  .search-overlay{position:fixed;inset:0;z-index:80;display:none;align-items:flex-start;justify-content:center;background:rgba(45,38,28,.28);backdrop-filter:blur(4px);padding-top:min(20vh,160px)}.search-overlay.open{display:flex}.search-modal{background:#fffefa;border:1px solid #dcd2c3;border-radius:15px;box-shadow:0 30px 90px #43352140;width:460px;max-width:calc(100% - 30px);overflow:hidden}.search-modal-head{padding:15px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #ebe4d9}.search-modal-head svg{width:18px;color:#a8866c}.search-modal-head input{outline:0;border:0;flex:1;font-size:14px;color:#54483c;background:transparent}.search-list{max-height:320px;overflow:auto;padding:8px}.search-item{width:100%;border:0;background:transparent;text-align:left;padding:12px;display:flex;align-items:center;gap:11px;border-radius:8px;cursor:pointer}.search-item:hover{background:#f5eee3}.search-item strong{font-size:12px;color:#53493f}.search-item small{display:block;font-size:11px;color:#aa9e90;margin-top:3px}.search-empty{padding:25px 16px;font-size:12px;color:#aa9e90;text-align:center}
+  .footerline{position:absolute;z-index:2;right:17px;top:19px;font-size:10px;letter-spacing:1px;color:#b4a895;font-weight:650}
+  @media(max-width:1180px){.map-header{padding:17px}.count-pill{display:none}}
+  /* Desktop application sidebar: responsive toolbar without mobile-specific sheets. */
+  @media(max-width:920px){.shell{padding:8px}.head-title h1{font-size:22px}.head-tools .button-caption{display:none}.inspector{width:295px}}
+  .head-tools .btn svg{width:16px;height:16px;flex-shrink:0}
+  .eyebrow{font-size:11px;font-weight:740;letter-spacing:1.35px;color:#b19c83;text-transform:uppercase}
+  .graph-guide{position:absolute;left:20px;bottom:66px;z-index:2;color:#9f9383;font-size:12px;pointer-events:none;background:rgba(255,252,246,.8);padding:6px 10px;border-radius:8px}
+
+  /* DSH sidebar control surfaces */
+  .btn{display:inline-flex;justify-content:center;align-items:center;gap:7px;min-height:35px;padding:8px 12px;border:1px solid #e3d8ca;border-radius:9px;background:#fffdf8;color:#6b5b4c;font-size:12px;font-weight:650;white-space:nowrap;transition:background .17s,border-color .17s,transform .17s}
+  .btn:hover{background:#f5ede1;border-color:#d4bba7}.btn:active{transform:translateY(1px)}.btn.primary{background:#8d6a55;color:#fffdfa;border-color:#8d6a55}.btn.primary:hover{background:#78513d}.btn:disabled{opacity:.45;cursor:default}
+  .node{z-index:2}.node:hover,.node:focus-within{z-index:8}
+  .detail-footer{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px!important}
+  .detail-footer .btn{min-height:37px;font-size:13px;min-width:0}
+  .detail-footer .btn.subtle{background:#fbf8f2;color:#8b7866}
+  .inspector-body,.inspector-intro{-webkit-user-select:text;user-select:text}
+  @media(prefers-reduced-motion:reduce){*,*:before,*:after{transition-duration:.01ms!important;animation-duration:.01ms!important}}
+
+  /* Minimal sidebar: retain content and navigation, omit duplicated helper descriptions. */
+  .depth-pill{font-size:12px;color:#865f47;font-weight:740;background:#f7efe6;border:1px solid #e9d7c4;border-radius:99px;padding:8px 12px;white-space:nowrap}
+  .map-header .head-title h1{margin:4px 0 7px}
+  .crumbbar{margin-top:7px;min-height:24px;gap:3px}
+  .crumb{font-size:13px;padding:5px 6px;border-radius:6px}
+  .crumb.current{background:#f4eadf;color:#855e48}
+  .group-area{background:rgba(255,253,248,.38)}
+  .node{touch-action:none}
+  .node.dragging,.node.dragging:hover{cursor:grabbing;z-index:12;transform:none;transition:none;box-shadow:0 16px 36px #604b3426,0 0 0 3px var(--node-wash)}
+  .map-wrap.transitioning{cursor:progress}
+  .map-wrap.transitioning .map-scene:not(.transition-ghost){pointer-events:none}
+  .node-action-dock{position:absolute;z-index:40;width:152px;display:flex;flex-direction:column;gap:2px;padding:5px;border-radius:9px;border:1px solid #dfd2c2;background:#fffdf9;box-shadow:0 13px 30px #60503a29;opacity:0;transform:translateY(4px) scale(.985);transform-origin:top left;pointer-events:none;transition:opacity .15s ease,transform .15s ease}
+  .node-action-dock.visible{opacity:1;transform:translateY(0) scale(1);pointer-events:auto}
+  .node-action-dock button{width:100%;display:flex;align-items:center;gap:9px;min-height:31px;border:0;border-radius:6px;background:transparent;color:#6e5947;padding:6px 9px;font-size:12px;font-weight:650;white-space:nowrap;cursor:pointer;text-align:left}
+  .node-action-dock button:last-child{background:transparent;color:#895d45}
+  .node-action-dock button:hover,.node-action-dock button:last-child:hover{background:#f2e9dc;filter:none}
+  .detail-footer{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .map-wrap.transitioning .node-action-dock{display:none}
+
+</style>
+</head>
+<body>
+<div class="shell">
+<div class="workspace">
+<main class="main" id="mainPanel">
+    <section class="map-header">
+      <div class="head-top"><div class="head-title"><h1 id="viewTitle">原子光谱与角动量</h1></div>
+      <div class="head-tools"><button id="globalSearch" class="btn search-action" title="搜索知识 (Ctrl/⌘ + K)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="10.8" cy="10.8" r="6.6"/><path d="m16 16 4 4"/></svg><span class="button-caption">查找知识</span></button><button id="exportBtn" class="btn" title="导出当前知识图"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v11m-4-4 4 4 4-4M5 16v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg><span class="button-caption">导出</span></button><span class="depth-pill" id="depthPill">第 1 / 3 层</span><button class="btn" id="viewNote" title="查看当前知识模块的详细笔记" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg><span class="button-caption">本节笔记</span></button><button class="btn" id="backBtn" title="返回上一层" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m15 18-6-6 6-6"/></svg><span class="button-caption">上一级</span></button></div></div>
+      <nav class="crumbbar" id="breadcrumbs" aria-label="知识图谱层级"><button class="crumb current">01 课程总览</button></nav>
+    </section>
+    <section class="map-wrap" id="mapWrap" aria-label="可交互知识地图，右键节点打开操作菜单"><div class="map-scene" id="mapScene"></div>
+      
+      
+      <div class="legend"><span class="legend-item"><i class="legend-line"></i> 概念依赖</span><span class="legend-item"><i class="legend-line secondary"></i> 补充 / 对比</span></div>
+      <div class="canvas-tools"><button id="zoomOut" title="缩小">−</button><span class="zoom-label" id="zoomValue">100%</span><button id="zoomIn" title="放大">+</button><span class="separator"></span><button id="zoomFit" title="适应视图">适配</button></div>
+      <aside id="inspector" class="inspector" aria-label="知识节点详情"><div class="inspector-head"><div class="inspector-flag"><span>知识笔记</span><button id="closeInspector" title="关闭详情" aria-label="关闭详情">×</button></div><h2 id="inspectTitle"></h2><div class="inspector-intro" id="inspectIntro"></div></div><div class="inspector-body" id="inspectBody"></div><div class="detail-footer"><button class="btn subtle" id="copyDetail">复制笔记</button><button class="btn subtle" id="inspectAction">定位节点</button></div></aside>
+      <div class="node-action-dock" id="nodeActionDock" role="menu" aria-label="知识内容操作"><button id="dockAdd" type="button" role="menuitem"><span>＋</span>添加到正文</button><button id="dockAsk" type="button" role="menuitem"><span>✦</span>提问 DSH</button></div><div class="toast" id="toast" role="status"></div>
+    </section>
+  </main>
+</div></div>
+<div class="search-overlay" id="searchOverlay"><div class="search-modal" role="dialog" aria-modal="true" aria-label="查找知识点"><div class="search-modal-head"><svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><circle cx="10.5" cy="10.5" r="7"/><path d="m16 16 5 5"/></svg><input id="searchInput" placeholder="搜索 LS 耦合、洪特规则、公式、例题……" autocomplete="off"/><button class="btn ghost" id="closeSearch" style="font-size:10px">ESC</button></div><div class="search-list" id="searchResults"></div></div></div>
+<script>
+(()=>{'use strict';
+const $=id=>document.getElementById(id);
+const icons={book:'<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v17H6.5A2.5 2.5 0 0 1 4 17.5V5.5ZM4 17.5A2.5 2.5 0 0 1 6.5 15H20"/>',atom:'<circle cx="12" cy="12" r="2"/><ellipse cx="12" cy="12" rx="10" ry="4"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)"/>',layers:'<path d="m12 3 9 5-9 5-9-5 9-5ZM3 12l9 5 9-5M3 16l9 5 9-5"/>',branch:'<circle cx="6" cy="5" r="2"/><circle cx="18" cy="7" r="2"/><circle cx="18" cy="19" r="2"/><path d="M8 5h4a6 6 0 0 1 6 6v6M6 7v10a2 2 0 0 0 2 2h8"/>',target:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',spark:'<path d="m12 2 2.2 7.8L22 12l-7.8 2.2L12 22l-2.2-7.8L2 12l7.8-2.2L12 2Z"/>',flask:'<path d="M9 3h6M10 3v7L4 20a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1l-6-10V3M7 16h10"/>',check:'<path d="m5 12 5 5L20 7"/>',alert:'<path d="M12 3 2 21h20L12 3ZM12 9v5m0 4h.01"/>',formula:'<path d="M18 4H8a4 4 0 0 0 0 8h9a4 4 0 0 1 0 8H6M5 6l-2 2 2 2m14 4 2 2-2 2"/>',link:'<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7.1-7.1l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7.1 7.1l1.7-1.7"/>',grid:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',idea:'<path d="M9 18h6M10 21h4M12 3a7 7 0 0 0-4 12.7c.7.5 1 1.1 1 2.3h6c0-1.2.3-1.8 1-2.3A7 7 0 0 0 12 3Z"/>',arrows:'<path d="m7 7 5-5 5 5M12 2v20m-5-5 5 5 5-5"/>'};
+function svgIcon(type){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(icons[type]||icons.book)+'</svg>'}
+const pal={terra:{border:'#e8caba',color:'#a96a4c',wash:'#f8eae0'},sage:{border:'#c6d6c7',color:'#64866d',wash:'#ebf2e9'},blue:{border:'#cad9e2',color:'#5c8298',wash:'#ebf2f5'},plum:{border:'#ddd0de',color:'#927597',wash:'#f3ecf3'},gold:{border:'#e3d5b7',color:'#a18451',wash:'#f7f0df'}};
+const N={
+ quantum:{title:'四个量子数',short:'电子状态的基本描述',type:'blue',icon:'atom',intro:'用 n、l、mₗ、mₛ 描述电子在原子中的量子状态，是理解原子结构和角动量的起点。',body:'主量子数 n 决定电子所处的壳层；角量子数 l 与轨道角动量大小有关；磁量子数 mₗ 描述轨道角动量的空间投影；自旋磁量子数 mₛ 描述电子自旋投影。',formula:'n ≥ 1，0 ≤ l ≤ n − 1\nmₗ = −l, …, l；mₛ = ±1/2',example:'当 n = 2 时，l 可取 0、1；对应 2s 与 2p 轨道。',tip:'主量子数 n 与角量子数 l 不等于角动量本身；要注意量子数的取值条件。',drill:'quantum'},
+ orbital:{title:'轨道角动量',short:'单电子 l 与总 L',type:'blue',icon:'atom',intro:'电子的轨道角动量由量子数 l 确定，多个电子的轨道角动量可耦合得到总 L。',body:'单电子轨道角动量大小与 l 有关。多电子系统中，可按照角动量加法规则得到总轨道角动量 L。',formula:'|l| = √[l(l+1)] ℏ\nL = |l₁ − l₂|, …, l₁ + l₂',example:'两个 p 电子各有 l=1，形式上可得到 L=0、1、2，但允许的谱项还受泡利原理约束。',tip:'不要把单电子 l 和多电子总 L 混淆。'},
+ spin:{title:'电子自旋',short:'自旋量子数与总 S',type:'blue',icon:'spark',intro:'电子具有内禀自旋。多电子体系的总自旋 S 是理解多重度和洪特规则的关键。',body:'电子具有 s=1/2 的内禀自旋，两个电子的自旋可耦合得到单态 S=0 和三重态 S=1。',formula:'|s| = √[s(s+1)] ℏ\n多重度 = 2S + 1',example:'两电子 S=0 时，多重度为 1；S=1 时，多重度为 3。',tip:'S 和表示轨道角动量 L=0 的光谱字母 S，含义不同。'},
+ interaction:{title:'自旋—轨道作用',short:'角动量耦合的物理来源',type:'gold',icon:'link',intro:'电子自旋磁矩与轨道运动产生的有效磁场相互作用，使原子谱项出现精细结构。',body:'自旋—轨道作用将自旋与轨道自由度联系起来。轻原子和重原子对角动量耦合方案的适用性通常不同。',formula:'Hₛₒ ∝ L · S（简化形式）',example:'同一个 ³P 谱项可分裂为 J=0、1、2 的精细结构能级。',tip:'具体精细结构还可能包含其他相互作用。'},
+ ls:{title:'LS 耦合',short:'先 L、S，再合成 J',type:'terra',icon:'branch',intro:'也称 Russell–Saunders 耦合。先分别求总轨道角动量 L 和总自旋角动量 S，再求总角动量 J。',body:'在静电相互作用相对占优、自旋—轨道作用较弱的原子体系中，LS 耦合是常用的近似方案。它是推导多电子原子谱项的主要工具之一。',formula:'L = Σlᵢ；S = Σsᵢ\nJ = |L − S|, …, L + S',example:'已知 L=1、S=1，则 J 可以取 0、1、2，谱项写为 ³P₀、³P₁、³P₂。',tip:'LS 耦合是近似框架，不能不加区分地推广到所有原子。',drill:'ls'},
+ jj:{title:'jj 耦合',short:'先求各 j，再求总 J',type:'plum',icon:'branch',intro:'先把每个电子的轨道与自旋耦合成单电子总角动量 j，再将各电子的 j 合成 J。',body:'在自旋—轨道作用相对更强的体系，jj 耦合往往更加合适。',formula:'jᵢ = lᵢ ± 1/2\nJ = |j₁ − j₂|, …, j₁ + j₂',example:'对单个 p 电子，l=1、s=1/2，可有 j=1/2 与 j=3/2。',tip:'实际原子可能处于中间耦合区间。',drill:'jj'},
+ term:{title:'谱项符号',short:'读懂 ²S⁺¹Lⱼ',type:'sage',icon:'formula',intro:'通过总自旋、多重度、总轨道角动量和总角动量描述原子态。',body:'原子谱项通常写作 ²S⁺¹Lⱼ。上标 2S+1 表示多重度；字母表示 L；下标 J 表示总角动量。',formula:'²S⁺¹Lⱼ\nL = 0,1,2,3 → S,P,D,F',example:'³P₂：S=1、L=1、J=2。',tip:'表示轨道角动量的字母 S 与自旋量 S 不要混淆。',drill:'term'},
+ hund:{title:'洪特规则',short:'从谱项判断基态',type:'sage',icon:'target',intro:'洪特规则帮助判断同一电子组态中的谱项和精细结构能级的通常相对高低。',body:'第一规则：在同一电子组态中，总自旋 S 最大者通常最低。第二规则：在相同 S 下，L 最大者通常最低。第三规则：对于给定谱项，未达半满时最低 J 通常较低；超过半满时最高 J 通常较低。',formula:'先比较 S → 再比较 L → 最后比较 J',example:'p² 组态常见基态谱项为 ³P₀。',tip:'它们是适用于常见原子组态的经验规则，不是对任何复杂体系都无例外的绝对定律。',drill:'hund'},
+ ground:{title:'基态能级判定',short:'确定最稳定的原子态',type:'sage',icon:'target',intro:'结合允许谱项与洪特规则，在候选谱项中判断基态。',body:'先列出电子组态允许的谱项，再比较多重度、L、J，确定通常的基态能级。',formula:'组态 → 允许谱项 → S → L → J',example:'p²：允许谱项 ¹S、¹D、³P，基态为 ³P₀。',tip:'不能跳过“允许谱项”的筛选直接套洪特规则。',drill:'ground'},
+ example:{title:'p² 组态例题',short:'15 个微观状态如何分配',type:'gold',icon:'flask',intro:'用两个等价 p 电子作为例子，从微观状态总数出发，推导允许谱项，并判定基态。',body:'p 亚层共有 6 个自旋轨道，从中选两个电子，有 C(6,2)=15 个微观状态。按照泡利不相容原理与角动量耦合规则，可以分为 ¹S、¹D 和 ³P。',formula:'C(6,2) = 15\n1 + 5 + 9 = 15',example:'其中 ¹S 含 1 个微观状态，¹D 含 5 个，³P 含 9 个；基态为 ³P₀。',tip:'不能仅凭总微观状态数确定允许谱项，还需要进行具体状态归类。',drill:'example'},
+ mistakes:{title:'常见易错点',short:'从概念到计算的误区',type:'plum',icon:'alert',intro:'归纳学习多电子原子谱项时最容易出现的概念混淆和计算疏漏。',body:'区分单电子量子数与总量子数；区分谱项与精细结构能级；列举等价电子组态时注意泡利不相容原理；比较基态时严格执行判断顺序。',formula:'l ≠ L；s ≠ S；谱项 ≠ 单个 J 能级',example:'不能把两个 p 电子形式上所有 L、S 组合，都直接当作 p² 组态的允许谱项。',tip:'复习时先看错误类型，再回到对应知识节点。'},
+ l_rule:{title:'总 L 的合成',short:'轨道角动量相加',type:'terra',icon:'formula',intro:'按照角动量加法规则，将各电子轨道角动量耦合得到总 L。',body:'两电子系统中总轨道角动量 L 可取从 |l₁−l₂| 到 l₁+l₂ 的所有整数。多电子体系可以逐次耦合。',formula:'L = |l₁−l₂|, |l₁−l₂|+1, …, l₁+l₂',example:'l₁=l₂=1 时，形式上 L 可取 0、1、2。',tip:'等价电子还需额外考虑态的交换对称性与泡利原理。'},
+ s_rule:{title:'总 S 的合成',short:'自旋角动量相加',type:'terra',icon:'formula',intro:'按角动量合成规则求出总自旋 S。',body:'两个自旋 s=1/2 的电子，可耦合得到 S=0 或 S=1。',formula:'S = 0 或 1（两个 s=1/2 的电子）',example:'S=0 对应单重态，S=1 对应三重态。',tip:'不同总自旋的态还需要与轨道波函数的交换对称性匹配。'},
+ j_rule:{title:'允许的 J 值',short:'从 L 与 S 求精细结构',type:'terra',icon:'formula',intro:'固定总 L 和总 S 后，通过角动量加法规则列出所有允许的总角动量 J。',body:'J 从 |L−S| 开始，以步长 1 增加到 L+S。由不同 J 值可构成同一谱项的多个精细结构能级。',formula:'J = |L − S|, |L − S| + 1, …, L + S',example:'L=1，S=1 ⇒ J=0、1、2，对应 ³P₀、³P₁、³P₂。',tip:'J 值取值是角动量加法规则，不等于这些能级的能量排序。',drill:'j_rule'},
+ ls_scope:{title:'适用条件',short:'什么时候用 LS 耦合',type:'gold',icon:'idea',intro:'判断 LS 耦合近似是否合理，关键在于相互作用的相对强弱。',body:'静电相互作用通常强于自旋—轨道作用时，LS 耦合是常用的近似表述；相反更可能采用 jj 耦合或中间耦合。',formula:'静电相互作用 ≫ 自旋—轨道作用',example:'较轻原子的多电子体系常使用 LS 耦合来标记谱项。',tip:'轻原子也可能有需要精细处理的例外。'},
+ ls_step:{title:'谱项生成流程',short:'按步骤判断',type:'terra',icon:'layers',intro:'从电子组态列举角动量，再根据等价电子限制筛选谱项。',body:'先确定各电子 l、s；再合成可能的 L 和 S；根据泡利原理筛选允许组合；最后由 L 和 S 列出 J。',formula:'组态 → L、S → 允许谱项 → J',example:'p² 组态最后保留 ¹S、¹D、³P。',tip:'所有形式上可合成的 L、S，不一定都对应允许的电子态。'},
+ compare:{title:'与 jj 耦合对比',short:'两种求和顺序',type:'plum',icon:'branch',intro:'比较两种耦合方案，有助于理解它们对应的物理近似。',body:'LS：先把各电子 l 相加、各电子 s 相加，最后 L 与 S 合成 J。jj：每个电子先合成 j，再把各 j 合成总 J。',formula:'LS： (Σlᵢ)+(Σsᵢ) → J\njj： Σ(lᵢ+sᵢ) → J',example:'两者可以描述同一个原子体系，但态标记所对应的近似基底不同。',tip:'不能简单说某一个方案总是更准确。'},
+ j_examples:{title:'J 值训练',short:'三道快速计算',type:'gold',icon:'flask',intro:'通过练习熟悉 J 的取值与谱项的写法。',body:'先确定 L 和 S，再根据两角动量合成规则得到 J。',formula:'L=2,S=1 → J=1,2,3\nL=1,S=0 → J=1',example:'L=2、S=1 对应 ³D₁、³D₂、³D₃。',tip:'注意 J 不一定只取一个数。'},
+ principle:{title:'第一、二规则',short:'先 S，后 L',type:'sage',icon:'layers',intro:'比较同一组态中不同谱项的通常相对高低。',body:'通常先选自旋多重度较大者；总自旋 S 相同时，再比较 L，大者通常能量较低。',formula:'优先 S 最大；同 S 时优先 L 最大',example:'对 p² 组态，³P 通常低于 ¹D 和 ¹S。',tip:'第一、二规则是经验近似，需要注意使用条件。'},
+ third:{title:'第三规则',short:'半满前后 J 排序',type:'sage',icon:'target',intro:'在已经确定 L、S 的同一谱项内部，根据电子壳层填充状况判断 J 的相对能级。',body:'未达半满时，最低 J 通常最低；超过半满时，最高 J 通常最低。',formula:'少于半满：J 最小优先\n多于半满：J 最大优先',example:'p² 少于半满，因此 ³P₀ 通常是最低的精细结构能级。',tip:'半满壳层和特殊组态需审慎讨论。'},
+ order:{title:'判断顺序',short:'先筛选，再排序',type:'sage',icon:'check',intro:'用严格顺序避免在基态判定中遗漏限制条件。',body:'先根据电子排布、泡利不相容原理列出允许谱项，再运用洪特规则选择谱项与 J。',formula:'允许谱项 → S → L → J',example:'p² → {¹S, ¹D, ³P} → ³P → ³P₀。',tip:'不能从“L 最大”直接跳到基态判断。'},
+ notation:{title:'符号的三个部分',short:'多重度、字母和 J',type:'sage',icon:'formula',intro:'理解 ²S⁺¹Lⱼ 的三个字段。',body:'左上角数字表示自旋多重度；中间字母表示总轨道角动量；右下角是总角动量 J。',formula:'²S⁺¹Lⱼ',example:'³D₂ 代表 S=1、L=2、J=2。',tip:'谱项标记并不直接给出一个态的全部微观状态细节。'},
+ letters:{title:'L 的字母对应',short:'S / P / D / F',type:'blue',icon:'book',intro:'总轨道角动量 L 与字母标记一一对应。',body:'L=0、1、2、3 分别记作 S、P、D、F，L 更大时依序使用后续约定字母。',formula:'L：0  1  2  3\n字母：S  P  D  F',example:'L=1 的谱项以 P 表示。',tip:'光谱字母 S 与总自旋符号 S 在上下文中含义不同。'},
+ degeneracy:{title:'微观状态简并度',short:'计数检查',type:'gold',icon:'grid',intro:'用微观状态数验证谱项列举是否完整。',body:'固定 L、S 的一个完整谱项，在忽略外场与精细结构拆分时，包含 (2L+1)(2S+1) 个磁量子数组合。',formula:'g = (2L + 1)(2S + 1)',example:'³P：L=1,S=1，共 3×3=9 个状态。',tip:'不要把某个固定 J 能级的 2J+1 简并度与整个谱项的简并度混淆。'},
+ combination:{title:'微观状态总数',short:'组合数的第一步',type:'gold',icon:'formula',intro:'两个等价 p 电子从 6 个自旋轨道中选择两种占据方式。',body:'p 子壳层包含 3 个空间轨道，每个空间轨道可容纳两种自旋，共 6 个自旋轨道。选两个不同自旋轨道的方式有 15 种。',formula:'C(6, 2) = 6×5/2 = 15',example:'这些状态之后被分类到不同的谱项。',tip:'组合数计数仅告诉我们总量，并不自动分配到各个谱项。'},
+ allowed:{title:'允许的谱项',short:'¹S、¹D、³P',type:'gold',icon:'layers',intro:'考虑等价电子和泡利不相容原理，筛选 p² 的允许谱项。',body:'两个等价 p 电子对应的完整允许谱项为 ¹S、¹D 和 ³P。',formula:'¹S：1；¹D：5；³P：9\n合计 = 15',example:'与总微观状态数 15 正好一致。',tip:'不能简单将所有可能的 L 与 S 任意组合。'},
+ outcome:{title:'基态与检验',short:'从谱项到答案',type:'sage',icon:'check',intro:'用洪特规则最终确定 p² 组态的基态，并检查计数。',body:'因为 ³P 的 S 最大，优先选择该谱项；p² 少于半满，根据第三规则其 J=0 能级最低。',formula:'p² → ³P → ³P₀',example:'C(6,2)=15 与 1+5+9=15 相互检验。',tip:'明确区分“基态谱项 ³P”与“基态能级 ³P₀”。'},
+ n_rule:{title:'主量子数 n',short:'层级与能级',type:'blue',icon:'book',intro:'主量子数 n 决定电子所在壳层，是量子数系统的基本索引。',body:'n 取正整数。对类氢原子，能量主要由 n 决定；多电子原子还受到屏蔽等影响。',formula:'n = 1, 2, 3, …',example:'n=2 表示第二壳层。',tip:'多电子原子能量一般不只由 n 决定。'},
+ l_single:{title:'角量子数 l',short:'轨道类型',type:'blue',icon:'atom',intro:'角量子数 l 与单电子的轨道角动量大小有关。',body:'给定 n，l 可取从 0 到 n−1 的整数。',formula:'l = 0,1,…,n−1',example:'l=0 为 s 轨道；l=1 为 p 轨道。',tip:'不要将小写 l 直接等同于多电子体系中的 L。'},
+ m_rule:{title:'磁量子数 mₗ',short:'空间投影',type:'blue',icon:'target',intro:'描述角动量沿选定方向的投影。',body:'给定 l，mₗ 从 −l 到 +l，步长为 1。',formula:'mₗ = −l, …, +l',example:'p 轨道 l=1，mₗ = −1,0,+1。',tip:'无外磁场时不同 mₗ 不一定代表不同能量。'},
+ ms_rule:{title:'自旋磁量子数 mₛ',short:'自旋投影',type:'blue',icon:'spark',intro:'电子自旋沿选定量子化轴的投影量子数。',body:'电子自旋量子数 s=1/2，因此 mₛ 有两种取值。',formula:'mₛ = +1/2 或 −1/2',example:'每个空间轨道最多容纳两名自旋相反的电子。',tip:'这一结论还要与泡利不相容原理共同理解。'},
+ jj_single:{title:'单电子 j',short:'先合成 l+s',type:'plum',icon:'atom',intro:'在 jj 耦合中先确定每一个电子的总角动量 j。',body:'将每个电子的轨道角动量 l 和自旋 s 相加。',formula:'j = |l − s|, …, l + s',example:'p 电子 l=1, s=1/2 → j=1/2 或 3/2。',tip:'这是单电子总角动量，不是整个原子的 J。'},
+ jj_total:{title:'总角动量 J',short:'再合成所有 j',type:'plum',icon:'formula',intro:'将单电子的 j 逐个耦合，得到原子总角动量 J。',body:'两电子 J 可取 |j₁−j₂| 至 j₁+j₂ 的角动量耦合允许值。',formula:'J = |j₁−j₂|, …, j₁+j₂',example:'j₁=1/2, j₂=3/2 → J=1 或 2。',tip:'相同电子情况下仍要遵循交换对称性限制。'},
+ first_practice:{title:'小练习：读谱项',short:'从 ³P₂ 反推 S、L、J',type:'gold',icon:'flask',intro:'检查自己是否能从谱项符号读出量子数。',body:'³P₂ 的上标为 3，所以 2S+1=3，S=1；P 表示 L=1；下标表示 J=2。',formula:'³P₂ → S=1, L=1, J=2',example:'再试 ²D₅/₂：S=1/2、L=2、J=5/2。',tip:'这类练习熟练后再进入谱项筛选。'}
+};
+// A scene is a structured graph: positioned cards, labeled lanes, and directed relationships.
+const VIEW={
+ root:{title:'原子光谱与角动量',subtitle:'从量子数、耦合模型到谱项判定，让知识之间的关系一目了然。',eyebrow:'KNOWLEDGE MAP / 课程总览',label:'知识结构总览',groups:[
+  {name:'前置概念',index:'01',subtitle:'电子状态与角动量来源',y:48,h:178,tone:'blue'},
+  {name:'角动量耦合',index:'02',subtitle:'由微观角动量到总角动量',y:245,h:178,tone:'terra'},
+  {name:'谱项与能级',index:'03',subtitle:'从符号到基态的推理链',y:442,h:178,tone:'sage'},
+  {name:'应用与检验',index:'04',subtitle:'把理论用到具体组态',y:639,h:130,tone:'gold'}],
+  nodes:[['quantum',78,104,220],['orbital',376,104,220],['spin',676,104,220],['interaction',898,270,198],['ls',174,300,225],['jj',564,300,225],['term',105,497,212],['hund',428,497,215],['ground',752,497,220],['example',287,679,230],['mistakes',676,679,230]],
+  edges:[['quantum','orbital','basic'],['quantum','spin','basic'],['orbital','ls','basic'],['spin','ls','basic'],['spin','jj','sub'],['interaction','jj','sub'],['ls','term','basic'],['jj','term','sub'],['term','hund','basic'],['hund','ground','basic'],['ground','example','basic'],['term','mistakes','sub'],['example','mistakes','sub']]},
+ ls:{parent:'root',center:'ls',title:'LS 耦合',subtitle:'先合成总轨道角动量 L 和总自旋 S，再得到总角动量 J。',eyebrow:'DEEP DIVE / 角动量耦合',label:'LS 耦合 · 内部结构',groups:[{name:'耦合前提',index:'01',subtitle:'为何采用这一方案',y:56,h:184,tone:'gold'},{name:'求解路径',index:'02',subtitle:'沿线索逐步深入',y:261,h:220,tone:'terra'},{name:'拓展与验证',index:'03',subtitle:'适用边界与例题',y:503,h:238,tone:'plum'}],nodes:[['ls_scope',100,120,235],['interaction',540,120,235],['l_rule',87,335,225],['s_rule',415,335,225],['j_rule',755,335,230],['ls_step',110,567,230],['compare',448,567,230],['j_examples',785,567,230]],edges:[['ls_scope','l_rule','basic'],['l_rule','s_rule','basic'],['s_rule','j_rule','basic'],['interaction','compare','sub'],['j_rule','j_examples','basic'],['l_rule','ls_step','sub'],['ls_step','j_examples','sub'],['compare','j_examples','sub']]},
+ j_rule:{parent:'ls',center:'j_rule',title:'允许的 J 值',subtitle:'从总角动量合成公式出发，连接谱项表示与典型训练。',eyebrow:'DEEP DIVE / 三级知识结构',label:'角动量加法 · 公式与应用',groups:[{name:'角动量合成规则',index:'01',subtitle:'理解 J 的取值',y:70,h:225,tone:'terra'},{name:'从公式到应用',index:'02',subtitle:'例题与易错点',y:332,h:290,tone:'sage'}],nodes:[['l_rule',100,145,220],['s_rule',451,145,220],['j_rule',792,145,220],['term',145,424,220],['j_examples',488,424,220],['mistakes',821,424,210]],edges:[['l_rule','s_rule','basic'],['s_rule','j_rule','basic'],['j_rule','j_examples','basic'],['j_examples','mistakes','sub'],['j_rule','term','sub'],['term','j_examples','basic']]},
+ quantum:{parent:'root',center:'quantum',title:'四个量子数',subtitle:'从 n、l、mₗ、mₛ 理解原子中电子的量子状态。',eyebrow:'DEEP DIVE / 基础概念',label:'电子量子数 · 内部结构',groups:[{name:'电子状态的四个维度',index:'01',subtitle:'每个量子数回答一个不同的问题',y:80,h:250,tone:'blue'},{name:'向多电子体系过渡',index:'02',subtitle:'角动量合成与应用',y:374,h:252,tone:'terra'}],nodes:[['n_rule',95,165,220],['l_single',365,165,220],['m_rule',635,165,220],['ms_rule',905,165,185],['orbital',232,450,220],['spin',560,450,220],['ls',855,450,225]],edges:[['n_rule','l_single','basic'],['l_single','m_rule','basic'],['m_rule','ms_rule','sub'],['l_single','orbital','basic'],['ms_rule','spin','basic'],['orbital','ls','basic'],['spin','ls','basic']]},
+ term:{parent:'root',center:'term',title:'谱项符号',subtitle:'上标、多重度、字母与总角动量 J 的含义。',eyebrow:'DEEP DIVE / 谱项表示',label:'谱项符号 · 内部结构',groups:[{name:'读懂一个谱项',index:'01',subtitle:'从表示法开始',y:75,h:215,tone:'sage'},{name:'谱项与微观状态',index:'02',subtitle:'理解为什么需要计数',y:322,h:280,tone:'gold'}],nodes:[['notation',92,137,230],['letters',448,137,230],['j_rule',808,137,230],['degeneracy',165,413,225],['first_practice',530,413,245],['example',850,413,220]],edges:[['notation','letters','basic'],['letters','j_rule','basic'],['notation','degeneracy','sub'],['j_rule','first_practice','basic'],['degeneracy','example','basic'],['first_practice','example','sub']]},
+ hund:{parent:'root',center:'hund',title:'洪特规则',subtitle:'学会从允许谱项出发，按 S、L、J 的顺序判定基态。',eyebrow:'DEEP DIVE / 能级判定',label:'洪特规则 · 内部结构',groups:[{name:'判定原理',index:'01',subtitle:'先选谱项，再比较 J',y:80,h:240,tone:'sage'},{name:'应用与边界',index:'02',subtitle:'把经验规则用于真实题目',y:361,h:260,tone:'gold'}],nodes:[['principle',120,154,235],['third',468,154,235],['order',822,154,228],['ground',185,451,236],['example',525,451,236],['mistakes',864,451,215]],edges:[['principle','third','basic'],['third','order','basic'],['order','ground','basic'],['ground','example','basic'],['third','mistakes','sub'],['example','mistakes','sub']]},
+ example:{parent:'root',center:'example',title:'p² 组态例题',subtitle:'从总微观状态数到允许谱项，最后确定最低能级。',eyebrow:'DEEP DIVE / 例题训练',label:'p² 例题 · 逐步拆解',groups:[{name:'列举微观状态',index:'01',subtitle:'计数与筛选',y:76,h:230,tone:'gold'},{name:'计算结果与检查',index:'02',subtitle:'让答案有可追溯的依据',y:345,h:272,tone:'sage'}],nodes:[['combination',138,152,242],['allowed',520,152,242],['degeneracy',890,152,216],['principle',186,444,235],['outcome',536,444,235],['mistakes',865,444,218]],edges:[['combination','allowed','basic'],['allowed','degeneracy','basic'],['allowed','principle','basic'],['principle','outcome','basic'],['outcome','mistakes','sub']]},
+ ground:{parent:'root',center:'ground',title:'基态能级判定',subtitle:'先得到允许谱项，再根据规则挑选最低能量态。',eyebrow:'DEEP DIVE / 基态判定',label:'基态判定 · 逻辑路径',groups:[{name:'完整判断流程',index:'01',subtitle:'不要跳过允许谱项',y:84,h:232,tone:'sage'},{name:'实战检验',index:'02',subtitle:'联系 p² 组态',y:365,h:263,tone:'gold'}],nodes:[['allowed',128,160,239],['principle',464,160,239],['third',801,160,239],['order',178,461,239],['outcome',528,461,239],['mistakes',867,461,218]],edges:[['allowed','principle','basic'],['principle','third','basic'],['third','order','basic'],['order','outcome','basic'],['outcome','mistakes','sub']]},
+ jj:{parent:'root',center:'jj',title:'jj 耦合',subtitle:'先合成每个电子的 j，再将 j 相加得到总 J。',eyebrow:'DEEP DIVE / 角动量耦合',label:'jj 耦合 · 内部结构',groups:[{name:'jj 耦合路线',index:'01',subtitle:'与 LS 耦合的不同顺序',y:80,h:240,tone:'plum'},{name:'对比和适用条件',index:'02',subtitle:'形成完整的物理理解',y:365,h:250,tone:'gold'}],nodes:[['orbital',115,159,235],['jj_single',461,159,235],['jj_total',815,159,235],['interaction',202,449,232],['compare',551,449,230],['ls_scope',883,449,220]],edges:[['orbital','jj_single','basic'],['jj_single','jj_total','basic'],['interaction','compare','basic'],['jj_total','compare','sub'],['compare','ls_scope','sub']]}
+};
+const WIDTH=1140,HEIGHT=800;let current='root',trail=['root'],inspectId=null,zoom=1,tx=0,ty=0,autoFit=true,sceneNodes={},panning=null,toastTimer=null,navToken=0;
+const wrap=$('mapWrap'),scene=$('mapScene');
+const dock=$('nodeActionDock');let dockTarget=null;
+let dragState=null,suppressClickUntil=0,navLock=false,navTimers=[],cameraCache={};
+function hideDock(){dock.classList.remove('visible');dockTarget=null}
+function showDock(target,clientX,clientY){
+  if(navLock||dragState?.active)return;
+  dockTarget=target;dock.classList.add('visible');
+  const area=wrap.getBoundingClientRect();
+  const dw=dock.offsetWidth||152,dh=dock.offsetHeight||74;
+  const x=Math.max(8,Math.min(area.width-dw-8,clientX-area.left+6));
+  const y=Math.max(8,Math.min(area.height-dh-8,clientY-area.top+6));
+  dock.style.left=x+'px';dock.style.top=y+'px';
+}
+dock.addEventListener('pointerdown',e=>e.stopPropagation());
+dock.addEventListener('contextmenu',e=>e.preventDefault());
+$('dockAdd').addEventListener('click',e=>{e.stopPropagation();if(dockTarget)demoDSH('add',dockTarget.value,dockTarget.kind);hideDock()});
+$('dockAsk').addEventListener('click',e=>{e.stopPropagation();if(dockTarget)demoDSH('ask',dockTarget.value,dockTarget.kind);hideDock()});
+
+function esc(t){return String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function currentView(){return VIEW[current]}
+function draw(){const v=currentView();$('viewTitle').textContent=v.title;$('depthPill').textContent=`第 ${trail.length} / 3 层 · ${v.nodes.length} 节点`;$('viewNote').style.display=v.center?'inline-flex':'none';$('backBtn').disabled=trail.length<=1;$('backBtn').style.opacity=trail.length<=1?.45:1;
+$('breadcrumbs').innerHTML=trail.map((id,i)=>`${i?'<span class="chev">›</span>':''}<button class="crumb ${i===trail.length-1?'current':''}" data-crumb="${id}">${String(i+1).padStart(2,'0')} ${esc(i===0?'课程总览':VIEW[id].title)}</button>`).join('');
+sceneNodes={};v.nodes.forEach(([id,x,y,w])=>{sceneNodes[id]={id,x,y,w,h:88}});
+let html=v.groups.map(g=>`<div class="group-area" style="left:42px;top:${g.y}px;width:1058px;height:${g.h}px;--group-color:${pal[g.tone].color}"><div class="group-title"><span>${g.index}</span>${esc(g.name)}</div></div>`).join('');
+v.nodes.forEach(([id,x,y,w])=>{const n=N[id],p=pal[n.type],has=!!n.drill&&!!VIEW[n.drill]&&n.drill!==current;html+=`<div class="node ${has?'':'leaf'}" role="button" tabindex="0" data-node="${id}" aria-label="${has?'进入内部知识地图':'查看详细知识'}：${esc(n.title)}" style="left:${x}px;top:${y}px;width:${w}px;--node-border:${p.border};--node-accent:${p.color};--node-wash:${p.wash}"><span class="node-icon">${svgIcon(n.icon)}</span><span class="node-copy"><span class="node-title">${esc(n.title)}</span><span class="node-desc">${esc(n.short)}</span></span><span class="node-hint">${has?'↗':'·'}</span></div>`});scene.innerHTML=html;
+scene.querySelectorAll('.node').forEach(el=>{
+  const id=el.dataset.node;
+  if(sceneNodes[id])sceneNodes[id].h=el.offsetHeight;
+});
+syncConnections();
+scene.querySelectorAll('.node').forEach(el=>{
+  el.addEventListener('click',e=>{if(navLock||performance.now()<suppressClickUntil)return;e.stopPropagation();onNode(el.dataset.node)});
+  el.addEventListener('keydown',e=>{if(e.target!==el)return;if(e.key==='Enter'||e.key===' '){e.preventDefault();onNode(el.dataset.node)}});
+  el.addEventListener('contextmenu',e=>{e.preventDefault();e.stopPropagation();showDock({kind:'节点',value:N[el.dataset.node].title},e.clientX,e.clientY)});
+  el.addEventListener('keydown',e=>{if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10')){e.preventDefault();const r=el.getBoundingClientRect();showDock({kind:'节点',value:N[el.dataset.node].title},r.left+r.width/2,r.top+r.height/2)}});
+  el.addEventListener('pointerdown',e=>{
+    if(navLock||e.button!==0||e.target.closest('button'))return;
+    e.stopPropagation();dragState={id:el.dataset.node,el,pointer:e.pointerId,x:e.clientX,y:e.clientY,ox:sceneNodes[el.dataset.node].x,oy:sceneNodes[el.dataset.node].y,active:false};
+    el.setPointerCapture(e.pointerId);
+  });
+  el.addEventListener('pointermove',e=>{
+    if(!dragState||dragState.el!==el||dragState.pointer!==e.pointerId)return;
+    const dx=e.clientX-dragState.x,dy=e.clientY-dragState.y;
+    if(!dragState.active&&Math.hypot(dx,dy)>7){dragState.active=true;el.classList.add('dragging');hideDock()}
+    if(!dragState.active)return;
+    const pt=sceneNodes[dragState.id];pt.x=Math.round(dragState.ox+dx/zoom);pt.y=Math.round(dragState.oy+dy/zoom);
+    el.style.left=pt.x+'px';el.style.top=pt.y+'px';
+    syncConnections();
+  });
+  const stop=e=>{
+    if(!dragState||dragState.el!==el)return;
+    if(dragState.active){const entry=currentView().nodes.find(n=>n[0]===dragState.id);if(entry){entry[1]=sceneNodes[dragState.id].x;entry[2]=sceneNodes[dragState.id].y} suppressClickUntil=performance.now()+190;el.classList.remove('dragging');}
+    dragState=null;
+    if(el.hasPointerCapture(e.pointerId))el.releasePointerCapture(e.pointerId);
+  };
+  el.addEventListener('pointerup',stop);el.addEventListener('pointercancel',stop);
+});
+$('breadcrumbs').querySelectorAll('[data-crumb]').forEach(el=>el.addEventListener('click',()=>navigate(el.dataset.crumb,{back:true})));}
+// Port allocation is edge-driven, so *every* incoming and outgoing relation
+// terminates at an explicit dot. Multiple relations on the same side get
+// separate ports ordered by the other endpoint, rather than overlapping.
+function createConnections(edges){
+  const portGroups=new Map(),segments=[];
+  function register(nodeId,side,other,edgeIndex,role,type){
+    const key=nodeId+':'+side;
+    if(!portGroups.has(key))portGroups.set(key,[]);
+    const port={nodeId,side,other,edgeIndex,role,type,x:0,y:0};
+    portGroups.get(key).push(port);
+    return port;
+  }
+  edges.forEach(([from,to,type,label],edgeIndex)=>{
+    const a=sceneNodes[from],b=sceneNodes[to];
+    if(!a||!b)return;
+    const dx=(b.x+b.w/2)-(a.x+a.w/2);
+    const dy=(b.y+b.h/2)-(a.y+a.h/2);
+    const vertical=Math.abs(dy)>Math.abs(dx)*.55;
+    const sideA=vertical?(dy>=0?'bottom':'top'):(dx>=0?'right':'left');
+    const sideB=vertical?(dy>=0?'top':'bottom'):(dx>=0?'left':'right');
+    const source=register(from,sideA,to,edgeIndex,'out',type);
+    const target=register(to,sideB,from,edgeIndex,'in',type);
+    segments.push({source,target,type,label,vertical});
+  });
+  // Independently distribute incoming/outgoing ports for each of the four sides.
+  for(const group of portGroups.values()){
+    const side=group[0].side,verticalSide=(side==='left'||side==='right');
+    const axis=n=>{
+      const o=sceneNodes[n.other];
+      return verticalSide?o.y+o.h/2:o.x+o.w/2;
+    };
+    group.sort((a,b)=>axis(a)-axis(b)||a.edgeIndex-b.edgeIndex);
+    const node=sceneNodes[group[0].nodeId];
+    const length=verticalSide?node.h:node.w;
+    // Center every port group, with even fixed spacing instead of spreading
+    // sockets over the whole edge. Keep a consistent inset for dense groups.
+    const inset=verticalSide?14:20;
+    const preferredStep=verticalSide?17:24;
+    const count=group.length;
+    const step=count>1?Math.min(preferredStep,(length-2*inset)/(count-1)):0;
+    const start=length/2-step*(count-1)/2;
+    group.forEach((p,index)=>{
+      const point=start+step*index;
+      p.x=node.x+(side==='left'?0:side==='right'?node.w:point);
+      p.y=node.y+(side==='top'?0:side==='bottom'?node.h:point);
+    });
+  }
+  let svg=`<svg class="edges" viewBox="0 0 ${WIDTH} ${HEIGHT}" aria-hidden="true"><defs><marker id="arrow-main" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#92a797"/></marker><marker id="arrow-alt" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#c0a385"/></marker></defs>`;
+  for(const {source:a,target:b,type,label,vertical} of segments){
+    const secondary=type==='sub';
+    // Stop the arrow slightly before the target's visible input socket.
+    const stop=4.5;
+    const ex=b.x+(b.side==='left'?-stop:b.side==='right'?stop:0);
+    const ey=b.y+(b.side==='top'?-stop:b.side==='bottom'?stop:0);
+    let d;
+    if(vertical){const mid=(a.y+ey)/2;d=`M${a.x} ${a.y} C${a.x} ${mid} ${ex} ${mid} ${ex} ${ey}`}
+    else{const mid=(a.x+ex)/2;d=`M${a.x} ${a.y} C${mid} ${a.y} ${mid} ${ey} ${ex} ${ey}`}
+    svg+=`<path class="edge ${secondary?'secondary':''}" d="${d}" stroke="${secondary?'#c0a385':'#91a796'}" marker-end="url(#${secondary?'arrow-alt':'arrow-main'})"/>`;
+    if(label)svg+=`<text class="edge-label" x="${(a.x+b.x)/2}" y="${(a.y+b.y)/2-8}" text-anchor="middle">${esc(label)}</text>`;
+  }
+  svg+='</svg>';
+  const portsByNode=new Map();
+  for(const group of portGroups.values())for(const p of group){
+    const node=sceneNodes[p.nodeId];
+    const px=p.x-node.x,py=p.y-node.y;
+    const dot=`<span class="node-port ${p.role}" data-edge="${p.edgeIndex}" data-side="${p.side}" style="left:${px}px;top:${py}px" aria-hidden="true"></span>`;
+    if(!portsByNode.has(p.nodeId))portsByNode.set(p.nodeId,[]);
+    portsByNode.get(p.nodeId).push(dot);
+  }
+  return {svg,portsByNode,segments};
+}
+function syncConnections(){
+  const {svg,portsByNode}=createConnections(currentView().edges);
+  const existing=scene.querySelector('.edges');
+  if(existing)existing.outerHTML=svg;
+  else scene.insertAdjacentHTML('afterbegin',svg);
+  scene.querySelectorAll('.node').forEach(el=>{
+    el.querySelectorAll('.node-port').forEach(p=>p.remove());
+    const dots=portsByNode.get(el.dataset.node);
+    if(dots)el.insertAdjacentHTML('beforeend',dots.join(''));
+  });
+}
+function fit(){const b=wrap.getBoundingClientRect();if(!b.width||!b.height)return;zoom=Math.max(.20,Math.min(1.15,Math.min((b.width-70)/WIDTH,(b.height-75)/HEIGHT)));tx=(b.width-WIDTH*zoom)/2;ty=(b.height-HEIGHT*zoom)/2;autoFit=true;applyTransform()}
+function initialCamera(){
+ const b=wrap.getBoundingClientRect();
+ if(cameraCache[current]){({zoom,tx,ty,autoFit}=cameraCache[current]);applyTransform();return}
+ if(b.width>=620){fit();return}
+ const v=currentView(),chosen=v.nodes.find(n=>n[0]===(v.center||'ls'))||v.nodes[0];
+ const [,x,y,w]=chosen;
+ zoom=b.width<440?.77:.88;
+ tx=b.width*.49-(x+w/2)*zoom;
+ ty=b.height*.46-(y+44)*zoom;
+ autoFit=false;applyTransform();
+} 
+function applyTransform(){scene.style.transform=`translate(${tx}px,${ty}px) scale(${zoom})`;$('zoomValue').textContent=Math.round(zoom*100)+'%'}
+function changeZoom(factor,point){const b=wrap.getBoundingClientRect();const cx=point?.x??b.width/2,cy=point?.y??b.height/2,old=zoom;zoom=Math.max(.20,Math.min(2.5,zoom*factor));tx=cx-(cx-tx)*zoom/old;ty=cy-(cy-ty)*zoom/old;autoFit=false;applyTransform()}
+// One scene, two non-overlapping stages. No cloned canvas / ghost during navigation.
+// Total transition: 180ms exit + 320ms entrance = 500ms.
+let activeTransition=null;
+async function navigate(id,opts={}){
+  if(!VIEW[id]||navLock||current===id)return;
+  const nextTrail=[];for(let k=id;k;k=VIEW[k].parent)nextTrail.unshift(k);
+  const goingBack=opts.back??trail.includes(id);
+  const sourceId=opts.sourceId||(!goingBack?VIEW[id].center:null);
+  const sourceEl=sourceId?scene.querySelector(`[data-node="${sourceId}"]`):null;
+  const wrapRect=wrap.getBoundingClientRect();
+  const nodeRect=sourceEl?.getBoundingClientRect();
+  const old={zoom,tx,ty};cameraCache[current]={zoom,tx,ty,autoFit};
+  closeInspector();hideDock();
+  navLock=true;wrap.classList.add('transitioning');
+  scene.style.transition='none';
+
+  // Briefly push the old map toward the chosen node, then fade it out.
+  // The new map is not rendered until the old map is fully invisible.
+  const anchorX=nodeRect?nodeRect.left-wrapRect.left+nodeRect.width/2:wrapRect.width/2;
+  const anchorY=nodeRect?nodeRect.top-wrapRect.top+nodeRect.height/2:wrapRect.height/2;
+  const ratio=goingBack?.99:1.026;
+  const endX=anchorX-(anchorX-old.tx)*ratio;
+  const endY=anchorY-(anchorY-old.ty)*ratio;
+  const exitAnimation=scene.animate([
+    {transform:`translate(${old.tx}px,${old.ty}px) scale(${old.zoom})`,opacity:1},
+    {transform:`translate(${endX}px,${endY}px) scale(${old.zoom*ratio})`,opacity:0}
+  ],{duration:180,easing:'cubic-bezier(.32,0,.7,1)',fill:'forwards'});
+  activeTransition=exitAnimation;
+  try{await exitAnimation.finished}catch(e){}
+  scene.style.opacity='0';
+  exitAnimation.cancel();
+
+  // Atomically swap the map while fully transparent and set its final camera.
+  // In particular, do not animate its transform: that was causing the shake.
+  current=id;trail=nextTrail;draw();initialCamera();
+  const enterAnimation=scene.animate([
+    {opacity:0},{opacity:1}
+  ],{duration:320,easing:'cubic-bezier(.2,.65,.25,1)',fill:'forwards'});
+  activeTransition=enterAnimation;
+  try{await enterAnimation.finished}catch(e){}
+  scene.style.opacity='1';
+  enterAnimation.cancel();activeTransition=null;
+  navLock=false;wrap.classList.remove('transitioning');
+  requestAnimationFrame(()=>{if(!navLock)scene.style.transition='transform .45s cubic-bezier(.22,.8,.2,1),opacity .22s'});
+}
+function onNode(id){const n=N[id];if(!n)return;if(n.drill&&VIEW[n.drill]&&n.drill!==current){navigate(n.drill,{sourceId:id})}else openInspector(id)}
+function openInspector(id){const n=N[id];if(!n)return;inspectId=id;$('inspectTitle').textContent=n.title;$('inspectIntro').textContent=n.intro;const sections=[['核心理解',n.body,'body'],['关键公式 / 规则',n.formula,'formula'],['典型示例',n.example,'example-card'],['学习提醒',n.tip,'note-card']];$('inspectBody').innerHTML=sections.map(([title,text,cl])=>`<section class="detail-section"><div class="detail-label">${esc(title)}</div><div class="${cl==='body'?'detail-body':cl}">${esc(text)}</div></section>`).join('');const has=n.drill&&VIEW[n.drill]&&current!==n.drill;$('inspectAction').textContent=has?'进入子图 →':'在地图中定位';$('inspector').classList.add('open');$('inspectAction').onclick=()=>{if(has)navigate(n.drill);else{const el=scene.querySelector(`[data-node="${id}"]`);if(el){scene.querySelectorAll('.node.selected').forEach(e=>e.classList.remove('selected'));el.classList.add('selected');focusNode(id)}else toast('当前层级未展示此知识点，可用搜索跳转')}}}
+function closeInspector(){$('inspector').classList.remove('open');inspectId=null}
+function focusNode(id){const a=sceneNodes[id];if(!a)return;const b=wrap.getBoundingClientRect(),cx=a.x+a.w/2,cy=a.y+a.h/2;const desired=Math.min(1.4,Math.max(zoom,1.05));zoom=desired;tx=b.width*.46-cx*zoom;ty=b.height*.5-cy*zoom;autoFit=false;applyTransform()}
+function toast(message){const el=$('toast');el.textContent=message;el.classList.add('on');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('on'),3900)}
+$('zoomIn').addEventListener('click',()=>changeZoom(1.2));$('zoomOut').addEventListener('click',()=>changeZoom(1/1.2));$('zoomFit').addEventListener('click',fit);$('backBtn').addEventListener('click',()=>{if(trail.length>1)navigate(trail[trail.length-2],{back:true})});$('closeInspector').addEventListener('click',closeInspector);$('viewNote').addEventListener('click',()=>{const id=currentView().center;if(id)openInspector(id)});
+// All DSH integration controls are intentionally non-operational demonstrations.
+function demoDSH(action,value,kind){const preview=String(value).replace(/\s+/g,' ').slice(0,42);toast(action==='add'?`演示：将${kind}「${preview}」添加到 DSH 正文`:`演示：向 DSH 提问「${preview}」`)}
+function selectionInInspector(){
+  const sel=window.getSelection();if(!sel||sel.isCollapsed||!sel.toString().trim())return null;
+  const ins=$('inspector');
+  if(!ins.contains(sel.anchorNode)||!ins.contains(sel.focusNode))return null;
+  return sel;
+}
+$('inspector').addEventListener('contextmenu',e=>{
+  const sel=selectionInInspector();
+  if(!sel||e.target.closest('button'))return;
+  const r=sel.getRangeAt(0).getBoundingClientRect();
+  if(e.clientX<r.left-3||e.clientX>r.right+3||e.clientY<r.top-3||e.clientY>r.bottom+3)return;
+  e.preventDefault();showDock({kind:'文字',value:sel.toString().trim()},e.clientX,e.clientY);
+});
+document.addEventListener('pointerdown',e=>{if(!e.target.closest('#nodeActionDock'))hideDock()});
+$('copyDetail').addEventListener('click',async()=>{if(!inspectId)return;const n=N[inspectId];let val=[n.title,n.intro,n.body,'关键公式：'+n.formula,'例题：'+n.example,'提醒：'+n.tip].join('\n\n');try{await navigator.clipboard.writeText(val);toast('知识笔记已复制')}catch(e){const t=document.createElement('textarea');t.value=val;document.body.append(t);t.select();try{document.execCommand('copy');toast('知识笔记已复制')}catch(e2){toast('复制失败，请检查浏览器权限')}t.remove()}});
+wrap.addEventListener('pointerdown',e=>{if(e.target.closest('.node,.inspector,.canvas-tools,.node-action-dock'))return;if(e.button!==0&&e.button!==1)return;panning={x:e.clientX,y:e.clientY,tx,ty};wrap.classList.add('grabbing');wrap.setPointerCapture(e.pointerId);scene.style.transition='none'});
+wrap.addEventListener('pointermove',e=>{if(!panning)return;tx=panning.tx+e.clientX-panning.x;ty=panning.ty+e.clientY-panning.y;autoFit=false;applyTransform()});
+function stopPan(){if(!panning)return;panning=null;wrap.classList.remove('grabbing');scene.style.transition='transform .45s cubic-bezier(.22,.8,.2,1),opacity .22s'}wrap.addEventListener('pointerup',stopPan);wrap.addEventListener('pointercancel',stopPan);
+wrap.addEventListener('wheel',e=>{if(e.target.closest('.inspector'))return;e.preventDefault();const r=wrap.getBoundingClientRect();scene.style.transition='none';changeZoom(e.deltaY<0?1.10:.9,{x:e.clientX-r.left,y:e.clientY-r.top});clearTimeout(wrap._wheel);wrap._wheel=setTimeout(()=>scene.style.transition='transform .45s cubic-bezier(.22,.8,.2,1),opacity .22s',140)},{passive:false});
+$('exportBtn').addEventListener('click',()=>{const view=currentView(),data={title:view.title,view:current,nodes:view.nodes.map(([id,x,y,w])=>({id,...N[id],x,y,width:w})),relationships:view.edges.map(([from,to,type])=>({from,to,type})),groups:view.groups};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`知识地图-${current}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast('当前层级的知识地图已导出')});
+function allSearchNodes(){const ids=new Set();Object.keys(VIEW).forEach(k=>VIEW[k].nodes.forEach(([id])=>ids.add(id)));return [...ids]}
+function renderSearch(){const val=$('searchInput').value.trim().toLowerCase(),ids=allSearchNodes().filter(id=>!val||`${N[id].title} ${N[id].short} ${N[id].intro}`.toLowerCase().includes(val)).slice(0,12);$('searchResults').innerHTML=ids.length?ids.map(id=>`<button class="search-item" data-result="${id}"><span style="width:30px;height:30px;border-radius:9px;background:${pal[N[id].type].wash};color:${pal[N[id].type].color};display:grid;place-items:center">${svgIcon(N[id].icon)}</span><span><strong>${esc(N[id].title)}</strong><small>${esc(N[id].short)}</small></span></button>`).join(''):'<div class="search-empty">没有找到相关节点</div>';$('searchResults').querySelectorAll('[data-result]').forEach(b=>b.addEventListener('click',()=>{const id=b.dataset.result;closeSearch();let target=null;if(N[id].drill&&VIEW[N[id].drill])target=N[id].drill;else{target=Object.keys(VIEW).find(k=>VIEW[k].nodes.some(v=>v[0]===id))||'root'}navigate(target);setTimeout(()=>{openInspector(id);if(sceneNodes[id]&&!N[id].drill){scene.querySelector(`[data-node="${id}"]`)?.classList.add('selected')}},390)}))}
+function openSearch(){$('searchOverlay').classList.add('open');$('searchInput').value='';renderSearch();$('searchInput').focus()}function closeSearch(){$('searchOverlay').classList.remove('open')}
+$('globalSearch').addEventListener('click',openSearch);$('searchInput').addEventListener('input',renderSearch);$('closeSearch').addEventListener('click',closeSearch);$('searchOverlay').addEventListener('click',e=>{if(e.target===$('searchOverlay'))closeSearch()});document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openSearch()}if(e.key==='Escape'){hideDock();closeSearch();closeInspector()}});
+const ro=new ResizeObserver(()=>{if(autoFit&&!navLock)fit()});ro.observe(wrap);draw();requestAnimationFrame(initialCamera);
+})();
+</script>
+</body>
+</html>

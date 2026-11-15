@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/client", "src/shared"],
+  "exclude": ["src/server/map-files.ts", "src/server/map-service.ts"]
+}
