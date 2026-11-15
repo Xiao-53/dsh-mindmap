@@ -21,3 +21,14 @@ Desktop.ini
 *.log
 *.swp
 *~
+
+# Plugin build and dependencies
+node_modules/
+lib/
+dist/
+build/
+coverage/
+*.tgz
+*.tmp
+.vscode/
+.idea/

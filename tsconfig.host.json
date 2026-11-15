@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/index.ts", "src/typert.ts", "src/server", "src/shared"],
+  "exclude": ["src/client"]
+}

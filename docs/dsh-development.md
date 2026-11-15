@@ -6,7 +6,7 @@
 针对 DSH v0.2.2-rc.3 的侧栏接入、输入框联动及画布/HTML 方案比较，见 [侧栏调研](sidebar-integration-research.md)。用户已确认原生接入、引用加入草稿并回跳、最小稳定画布与文件数据；完整产品范围与分期以[产品规范](../specs/001-sidebar-knowledge-atlas/spec.md)为准，调研中的备选能力不自动进入范围。
 Archify 的结构化数据与统一渲染机制见 [Archify 调研](archify-reference.md)。
 
-当前已建立[项目宪章](../.specify/memory/constitution.md) `1.0.0`，并完成产品规范、JSON + Markdown [存储契约](mindmap-storage-format.md)及参考[提示词](mindmap-authoring-prompts.md)的整理；尚未进入技术规划或实现。下文初始化命令及检查结果是历史记录，不代表当前仍处于空模板、无功能目录状态。
+当前已有[项目宪章](../.specify/memory/constitution.md) `1.0.0`、产品规范、技术规划、任务及0.2.0本地候选；JSON/Markdown字段见 [存储契约](mindmap-storage-format.md)，生成规则见 [提示词](mindmap-authoring-prompts.md)。当前候选及剩余功能以 [交付状态](validation/release-status.md) 为准，可人工验收场景交用户按 [人工清单](validation/current-candidate.md) 执行。下文初始化命令及检查结果是历史记录。
 
 ## DSH 官方资料
 
