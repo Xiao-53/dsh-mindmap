@@ -1,12 +1,16 @@
 import { z } from 'zod'
 import type { InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { ReferenceInsert } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { noteAnchorSchema } from '../shared/note-position.ts'
 import { idSchema } from '../shared/validate-map.ts'
 import type { MapSnapshot, KnowledgeNode } from '../shared/map-types.ts'
 export const SOURCE_NAME = 'dsh-mindmap'
 const referenceSchema = z.strictObject({
   version: z.literal(1),
-  kind: z.enum(['node', 'selection']).optional(),
+  kind: z.enum(['node', 'selection', 'plot', 'note-position']).optional(),
+  anchor: noteAnchorSchema.optional(),
+  plotId: idSchema.optional(),
+  plotContent: z.string().min(1).max(128 * 1024).optional(),
   mapId: idSchema,
   nodeId: idSchema,
   originViewId: idSchema,
@@ -20,7 +24,8 @@ const referenceSchema = z.strictObject({
   sessionId: z.string().min(1),
   workspaceKey: z.string().min(1),
   resourceAddress: z.string().min(1),
-})
+}).refine(ref => (ref.kind === 'plot' ? !!ref.plotId && !!ref.plotContent : !ref.plotId && !ref.plotContent) &&
+  (ref.kind === 'note-position' ? ref.anchor?.mapId === ref.mapId && ref.anchor.nodeId === ref.nodeId : !ref.anchor))
 export type ReferenceSnapshot = z.infer<typeof referenceSchema>
 export function referenceContentDigest(
   snapshot: MapSnapshot,
@@ -44,16 +49,19 @@ export const decodeReference = (ref: string): ReferenceSnapshot =>
   referenceSchema.parse(JSON.parse(ref))
 export function serializeReference(ref: string): string {
   const s = decodeReference(ref)
-  return `来源：${s.mapTitle} / ${s.nodeTitle}（地图 ${s.mapId}，节点 ${s.nodeId}）\n${s.text
+  const plot = s.kind === 'plot' ? `，图块 ${s.plotId}` : ''
+  const anchor = s.anchor ? '\n正文位置 anchor：' + JSON.stringify(s.anchor) : ''
+  const text = s.kind === 'plot' ? `图块内容快照：${s.plotContent}` : s.text
+  return `来源：${s.mapTitle} / ${s.nodeTitle}（地图 ${s.mapId}，节点 ${s.nodeId}${plot}）\n${text
     .split('\n')
     .map((line) => `> ${line}`)
-    .join('\n')}`
+    .join('\n')}${anchor}`
 }
 export function referenceInsert(snapshot: ReferenceSnapshot): ReferenceInsert {
   return {
     source: SOURCE_NAME,
     ref: encodeReference(snapshot),
-    label: `${snapshot.nodeTitle} · ${snapshot.kind === 'node' ? '节点' : '选文'}`,
+    label: `${snapshot.nodeTitle} · ${snapshot.kind === 'plot' ? '图块 ' + snapshot.plotId : snapshot.kind === 'node' ? '节点' : snapshot.kind === 'note-position' ? '正文位置' : '选文'}`,
     appearance: 'file',
     clipboardText: snapshot.text,
   }

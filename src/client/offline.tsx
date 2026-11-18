@@ -1,33 +1,29 @@
 import { createRoot } from 'react-dom/client'
 import { useSyncExternalStore } from 'react'
 import { ReadingPane } from './AtlasPane.tsx'
-import type { AtlasPaneProps } from './AtlasPane.tsx'
+import type { ReadingPaneProps } from './AtlasPane.tsx'
+import type { OfflineMapData } from './export-html.ts'
 import type { MapSnapshot } from '../shared/map-types.ts'
 import type { ReadingStore } from './reading-state.ts'
 import { initialReading, readingKey } from './reading-state.ts'
-import type { HostAdapter } from './host-adapter.ts'
+declare const __NOTE_MATH_CSS__: string
 import atlasCss from './styles/atlas.css'
 import prototypeCss from './styles/prototype.css'
 
-const data = JSON.parse(document.getElementById('atlas-data')!.textContent!)
-let snapshot: MapSnapshot = { ...data, files: [], workspaceKey: 'offline', fingerprint: 'offline' }
+const data = JSON.parse(document.getElementById('atlas-data')!.textContent!) as OfflineMapData
+const snapshot: MapSnapshot = { ...data, files: [], workspaceKey: 'offline', fingerprint: 'offline', writable: false }
 const key = readingKey('offline', snapshot.map.id)
 let state: ReadingStore = { selectedMapId: snapshot.map.id, pending: {}, maps: {
   [key]: { ...initialReading('offline', 'offline', snapshot.map), viewId: data.viewId },
 } }
 const listeners = new Set<() => void>()
 const update = (next: ReadingStore) => { state = next; listeners.forEach(fn => fn()) }
-const host: HostAdapter = {
-  rename: async () => { throw new Error('离线阅读不修改地图名称') },
+const host = {
   list: async () => ({ maps: [{ id: snapshot.map.id, title: snapshot.map.title }], diagnostics: [] }),
   read: async () => snapshot,
-  saveLayout: async (_, layout) => { snapshot = { ...snapshot, layout }; return snapshot },
-  watch: () => () => {},
-  create: async () => { throw new Error('离线阅读不创建工作区文件') },
-  saveLibrary: async () => { throw new Error('离线阅读不修改目录') },
 }
 const style = document.createElement('style')
-style.textContent = atlasCss + '\n' + prototypeCss
+style.textContent = atlasCss + '\n' + prototypeCss + '\n' + __NOTE_MATH_CSS__
 document.head.append(style)
 const actions = {
   selectMap: (id: string) => update({ ...state, selectedMapId: id }),
@@ -38,11 +34,10 @@ const actions = {
     actions.setReading(key, { ...reading, cameras: { ...reading.cameras, [viewId]: camera } })
   },
 }
-const props = {
+const props: ReadingPaneProps = {
   host, sessionId: 'offline', actions,
-  useStore: (selector: (s: ReadingStore) => unknown) => selector(useSyncExternalStore(fn => { listeners.add(fn); return () => { listeners.delete(fn) } }, () => state)),
+  useStore: selector => selector(useSyncExternalStore(fn => { listeners.add(fn); return () => { listeners.delete(fn) } }, () => state)),
   useTabInfo: () => ({ tab: { visible: true, navigation: { revision: 0, params: { mapId: snapshot.map.id } }, actions: { close: () => {} } } }),
-  inputActions: { captureInsertion: () => ({ start: 0, end: 0, draftRev: 0 }) },
-  insertReference: () => false,
-} as unknown as AtlasPaneProps
-createRoot(document.getElementById('root')!).render(<ReadingPane {...props} offline onLibrary={() => {}} />)
+  offline: true, onLibrary: () => {},
+}
+createRoot(document.getElementById('root')!).render(<ReadingPane {...props} />)

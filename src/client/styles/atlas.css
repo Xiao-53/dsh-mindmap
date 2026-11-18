@@ -525,7 +525,8 @@
 }
 .dsh-atlas .inspector-body {
   padding: 17px 19px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   flex: 1;
   min-height: 0;
   scrollbar-width: thin;
@@ -1009,3 +1010,168 @@
 .dsh-atlas .library-checkbox:disabled { opacity: .45; }
 .dsh-atlas .library-chevron { display: block; flex: 0 0 12px; width: 12px; height: 12px; color: #a29b90; transform: rotate(90deg); transform-origin: center; transition: transform 120ms ease; }
 .dsh-atlas .library-chevron.shut { transform: rotate(0deg); }
+
+.dsh-atlas .editor-exit-backdrop { position:absolute; inset:0; z-index:100; background:#232b3444; display:flex; align-items:center; justify-content:center; padding:16px; }
+.dsh-atlas .editor-exit-dialog { max-width:440px; width:100%; padding:20px; border-radius:12px; background:#fffdf8; box-shadow:0 12px 40px #0003; }
+.dsh-atlas .editor-exit-dialog .editor-actions { display:flex; flex-wrap:wrap; gap:8px; }
+
+.dsh-atlas .inspector.inspector-inline .inspector-head { padding: 8px 16px 4px; border-bottom: 0; }
+.dsh-atlas .inspector.inspector-inline .inspector-body { padding: 4px 18px 14px; }
+.dsh-atlas .note-sheet textarea,
+.dsh-atlas .note-sheet .note-static-field {
+  display: block; width: 100%; box-sizing: border-box; resize: none; overflow: hidden;
+  border: 0; outline: 0; box-shadow: none; background: transparent;
+  padding: 3px 0; border-radius: 2px; color: inherit; font: inherit;
+}
+.dsh-atlas .note-sheet { overflow-x: clip; }
+.dsh-atlas .note-static-field { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dsh-atlas .note-static-field.note-inline-summary:empty { min-height: calc(1lh + 6px); }
+.dsh-atlas .note-readonly .note-image-remove { display: none; }
+.dsh-atlas .note-sheet textarea:not([readonly]):hover { background: #f6f2eb; }
+.dsh-atlas .note-sheet textarea:focus { background: #f6f2eb; box-shadow: 0 1px #9aacae; }
+.dsh-atlas .note-sheet .note-inline-title { font-size: 22px; font-weight: 650; line-height: 1.3; color: #51473e; }
+.dsh-atlas .note-sheet .note-inline-summary { font-size: 13px; line-height: 1.65; color: #776d60; margin-top: 5px; }
+.dsh-atlas .note-prose { position: relative; border-top: 1px solid #ece5d9; margin-top: 12px; padding-top: 12px; }
+.dsh-atlas .note-inline-tools { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.dsh-atlas .note-tool, .dsh-atlas .atlas-host-button.atlas-quiet-icon {
+  display: inline-grid; place-items: center; width: 27px; height: 27px; padding: 4px;
+  border: 0; border-radius: 5px; background: transparent; color: #776c60; cursor: pointer;
+}
+.dsh-atlas .note-tool:hover, .dsh-atlas .atlas-host-button.atlas-quiet-icon:hover { background: #eee8df; }
+.dsh-atlas .note-tool:disabled, .dsh-atlas .atlas-host-button.atlas-quiet-icon:disabled { opacity: .45; cursor: default; }
+.dsh-atlas .note-tool svg { width: 16px; height: 16px; }
+.dsh-atlas .inspector-body img { max-width: 100%; height: auto; }
+.dsh-atlas .note-inline-image { position: relative; display: inline-block; max-width: 100%; vertical-align: middle; }
+.dsh-atlas .note-inline-image img { display: block; border-radius: 5px; }
+.dsh-atlas .note-image-remove {
+  position: absolute; top: 3px; right: 3px; width: 24px; height: 24px; padding: 0;
+  border-radius: 50%; border: 1px solid #e6ded2; background: #fffefa; color: #66594c; cursor: pointer; opacity: 0;
+}
+.dsh-atlas .note-inline-image:hover .note-image-remove, .dsh-atlas .note-image-remove:focus-visible { opacity: 1; }
+.dsh-atlas .note-image-missing { display: inline-block; padding-right: 28px; }
+.dsh-atlas .note-inline-error { color: #98594c; font-size: 12px; margin: 5px 0 0; }
+.dsh-atlas .inspector.inspector-editable .detail-footer { display: flex !important; flex-wrap: wrap; padding: 4px 14px; }
+.dsh-atlas .inspector.inspector-editable .detail-footer .btn { flex: 0 1 auto; min-height: 28px; border: 0; box-shadow: none; background: transparent; font-size: 11px; color: #776c60; }
+.dsh-atlas .inspector.inspector-editable .detail-footer .btn:not(:disabled):hover { background: #eee8df; }
+
+.dsh-atlas .atlas-path-row .atlas-host-tools { gap: 3px; margin-top: 0; white-space: nowrap; }
+.dsh-atlas .inspector.inspector-inline .inspector-flag { font-size: 11px; font-weight: 550; letter-spacing: .25px; color: #817467; }
+.dsh-atlas .inspector.inspector-inline .inspector-flag button { width: 28px; height: 28px; border-radius: 5px; }
+.dsh-atlas .inspector.inspector-inline .inspector-flag button:hover { background: #eee8df; }
+
+.dsh-atlas .note-rich-body { min-height: 68px; padding-block: 6px; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 3px; }
+.dsh-atlas .note-rich-body[contenteditable="true"]:focus { outline: 1px solid #aab9ba; outline-offset: 5px; }
+.dsh-atlas .note-rich-body:empty::before { content: attr(data-placeholder); color: #81786f; pointer-events: none; }
+.dsh-atlas .note-rich-body :is(h1,h2,h3,h4,h5,h6) { color: #385b66; font-size: 13px; font-weight: 650; line-height: 1.5; margin: 10px 0 4px; }
+.dsh-atlas .note-rich-body h1 { font-size: 16px; font-weight: 750; margin: 16px 0 6px; }
+.dsh-atlas .note-rich-body h2 { font-size: 14px; font-weight: 700; margin: 13px 0 5px; }
+.dsh-atlas .note-rich-body [data-note-task=" "]::before { content: "☐ "; }
+.dsh-atlas .note-rich-body [data-note-task="x"]::before { content: "☑ "; }
+.dsh-atlas .note-rich-link { color: #896448; text-decoration: underline; }
+.dsh-atlas .note-edit-hint { color: #81786f; font-size: 12px; }
+
+.dsh-atlas .note-math { max-width: 100%; vertical-align: baseline; }
+.dsh-atlas .note-math-block { display: block; overflow-x: auto; overflow-y: hidden; padding: 0 2px; }
+.dsh-atlas .note-math-block .katex-display { width: max-content; min-width: 100%; margin: .55em 0; }
+.dsh-atlas .note-math-invalid { color: #98594c; overflow-wrap: anywhere; white-space: pre-wrap; }
+.dsh-atlas .note-math[role="button"] { cursor: pointer; border-radius: 3px; }
+.dsh-atlas .note-math[role="button"]:hover { background: #eee8df; }
+.dsh-atlas .note-math:focus-visible { outline: 1px solid #aab9ba; outline-offset: 2px; }
+
+.dsh-atlas .note-formula-editor { margin-top: 10px; padding: 8px 10px; border: 1px solid #e6ded2; border-radius: 6px; color: #61574c; font-size: 12px; }
+.dsh-atlas .note-formula-editor textarea { margin-top: 4px; padding: 5px 7px; background: #f7f3ec; font-family: monospace; resize: vertical; overflow: auto; }
+.dsh-atlas .note-formula-editor .editor-actions { margin-top: 6px; gap: 5px; }
+.dsh-atlas .note-formula-editor .btn { min-height: 27px; padding: 3px 8px; }
+.dsh-atlas .note-formula-editor .note-math { min-height: 22px; padding-top: 5px; }
+.dsh-atlas .note-math:not(.note-math-block) { display: inline-block; overflow-x: auto; vertical-align: middle; }
+
+.dsh-atlas .note-plot {
+  position: relative;
+  min-width: 0;
+  margin: 12px 0;
+  padding: 10px;
+  border: 1px solid #dce4ec;
+  border-radius: 10px;
+  background: #f9fbfd;
+  color: #223043;
+  overflow-wrap: anywhere;
+}
+.dsh-atlas .note-plot:focus-visible {
+  outline: 2px solid #52789d;
+  outline-offset: 2px;
+}
+.dsh-atlas .note-plot figcaption { font-weight: 650; }
+.dsh-atlas .note-plot-surface { position: relative; margin-top: 4px; user-select: none; }
+.dsh-atlas .note-plot-board { position: relative; overflow: hidden; width: 100%; height: clamp(150px, 38vw, 205px); pointer-events: none; }
+.dsh-atlas .note-plot-categories { position: absolute; bottom: 0; left: 17.76%; width: 77.22%; height: 17px; pointer-events: none; }
+.dsh-atlas .note-plot-categories span {
+  position: absolute;
+  transform: translateX(-50%);
+  max-width: 24%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+  color: #526174;
+  font-size: 10px;
+}
+.dsh-atlas .note-plot-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 0;
+  margin: 4px 0;
+  list-style: none;
+}
+.dsh-atlas .note-plot-legend li { display: flex; align-items: baseline; gap: 4px; max-width: 100%; min-width: 0; }
+.dsh-atlas .note-plot-key { flex: none; font-size: 11px; }
+.dsh-atlas .note-plot-formula { overflow: auto hidden; min-width: 0; }
+.dsh-atlas .note-plot-range, .dsh-atlas .note-plot-status { color: #526174; font-size: 12px; margin: 4px 0 0; }
+.dsh-atlas .note-plot-data summary { cursor: pointer; }
+.dsh-atlas .note-plot-data table { width: 100%; table-layout: fixed; font-size: 12px; }
+.dsh-atlas .note-plot-data td, .dsh-atlas .note-plot-data th { text-align: left; padding: 2px 3px; border-bottom: 1px solid #dce4ec; }
+.dsh-atlas .note-plot pre { max-width: 100%; white-space: pre-wrap; }
+.dsh-atlas .note-plot-menu {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 3;
+  padding: 4px;
+  border: 1px solid #d5dee8;
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 3px 10px #22304324;
+}
+.dsh-atlas .note-plot-menu button {
+  background: transparent;
+  border: 0;
+  color: #223043;
+  padding: 5px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.dsh-atlas .note-plot-menu button:is(:hover, :focus-visible) { background: #edf3fa; }
+.dsh-atlas .note-plot-host { position: relative; }
+.dsh-atlas .note-plot-controls { position: absolute; top: 5px; right: 6px; display: flex; gap: 3px; }
+.dsh-atlas .note-plot-controls button, .dsh-atlas .note-position-menu button {
+  border: 0; border-radius: 4px; background: #f7f3ed; color: #38515a; cursor: pointer;
+}
+.dsh-atlas .note-plot-controls button { width: 23px; height: 23px; padding: 0; }
+.dsh-atlas .note-plot-controls button:disabled { cursor: default; opacity: .5; }
+.dsh-atlas .note-plot-controls .note-plot-drag { cursor: grab; }
+.dsh-atlas .note-plot-controls .note-plot-drag:active { cursor: grabbing; }
+.dsh-atlas .note-plot-host figcaption { padding-inline-end: 51px; }
+.dsh-atlas .note-plot-drop {
+  position: absolute; left: 0; right: 0; height: 2px; margin-top: -1px;
+  z-index: 2; background: #527d85; border-radius: 2px; pointer-events: none;
+}
+.dsh-atlas .note-position-menu {
+  position: absolute; z-index: 40; padding: 4px; background: #fffdf8;
+  width: max-content; max-width: calc(100% - 16px);
+  border: 1px solid #e4d8c8; border-radius: 6px; box-shadow: 0 3px 12px #0002;
+}
+.dsh-atlas .inspector:has(.note-position-menu) .selection-popup { visibility: hidden; }
+.dsh-atlas .note-position-menu button {
+  display: block; width: 100%; min-height: 30px; padding: 4px 9px;
+  background: transparent; text-align: left;
+}
+.dsh-atlas .note-position-menu button:is(:hover,:focus-visible) { background: #eee8df; }

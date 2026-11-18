@@ -35,7 +35,7 @@ export function MapViewport({
   const fitCamera = () => {
     const width = Math.max(1140, bounds.x + bounds.width + 40)
     const height = Math.max(800, bounds.y + bounds.height + 40)
-    const scale = Math.max(.2, Math.min(1.15, (size.width-70)/width, (size.height-75)/height))
+    const scale = Math.max(.02, Math.min(1.15, (size.width-70)/width, (size.height-75)/height))
     return { zoom: scale, x: (size.width-width*scale)/2, y: (size.height-height*scale)/2 }
   }
   const initialZoom = size.width < 440 ? .77 : .88
@@ -60,7 +60,7 @@ export function MapViewport({
       onCamera(current)
   }, [camera, size.width, size.height, layout.viewId])
   const zoom = (factor: number, x = size.width / 2, y = size.height / 2) => {
-    const next = Math.max(0.2, Math.min(2.5, current.zoom * factor))
+    const next = Math.max(0.02, Math.min(2.5, current.zoom * factor))
     onCamera({
       zoom: next,
       x: x - ((x - current.x) * next) / current.zoom,
@@ -114,6 +114,7 @@ export function MapViewport({
           )
         )
           return
+        e.currentTarget.focus({preventScroll:true})
         drag.current = { x: e.clientX, y: e.clientY, camera: current }
         setDirect(true)
         e.currentTarget.setPointerCapture(e.pointerId)

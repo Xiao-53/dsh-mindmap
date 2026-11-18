@@ -75,13 +75,15 @@ export interface GroupLayout {
   width: number
   height: number
 }
+export type LayoutMode = 'vertical' | 'grid' | 'columns'
 export interface ViewLayout {
+  mode?: LayoutMode
   viewId: string
   nodes: NodeLayout[]
   groups: GroupLayout[]
 }
 export interface MapLayout {
-  schemaVersion: 1
+  schemaVersion: 1 | 2
   mapId: string
   views: ViewLayout[]
 }
@@ -99,6 +101,8 @@ export interface ReadFile {
   digest: string
 }
 export interface MapSnapshot {
+  writable?: boolean
+  diagnostics?: Diagnostic[]
   map: KnowledgeMap
   layout?: MapLayout
   notes: Record<string, string>
@@ -117,3 +121,5 @@ export interface MapListing {
   incompleteCreates?: { mapId: string; operationId: string; state: 'reserved' | 'failed' | 'cleanup_pending' }[]
   library?: import('./library.ts').LibraryState
 }
+
+export type ReadResult = MapSnapshot & { writable: boolean; diagnostics: Diagnostic[] }

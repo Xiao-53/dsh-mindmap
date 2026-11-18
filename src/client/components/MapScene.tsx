@@ -1,25 +1,26 @@
 import { memo, useMemo, useRef, useState } from 'react'
 import { useAnimatedPorts } from '../animate-ports.ts'
 import type { CSSProperties, MutableRefObject } from 'react'
-import type { KnowledgeMap, KnowledgeNode, NodeLayout, Relation, View, ViewLayout } from '../../shared/map-types.ts'
+import type { KnowledgeMap, KnowledgeNode, NodeLayout, View, ViewLayout } from '../../shared/map-types.ts'
 import { nodeHeight, viewBounds } from '../../shared/layout.ts'
 import type { Heights } from '../../shared/layout.ts'
 import { createConnections, PORT_RADIUS, INPUT_PORT_STROKE, OUTPUT_PORT_STROKE } from '../../shared/edge-geometry.ts'
 import { NodeCard, palette } from './NodeCard.tsx'
 interface SceneHandlers {
-  open: (id:string)=>void; note:(id:string)=>void; menu:(id:string,x:number,y:number)=>void
+  open: (id:string)=>void; note:(id:string)=>void; menu?:(id:string,x:number,y:number)=>void
   move?: (id:string,x:number,y:number)=>void; start:()=>void; commit:()=>void; end:()=>void
 }
 const SceneNode = memo(function SceneNode({node,layout,viewId,selected,locked,handlers}: {
   node:KnowledgeNode;layout:NodeLayout;viewId:string;selected:boolean;locked:boolean;handlers:MutableRefObject<SceneHandlers>
 }) {
   return <NodeCard node={node} layout={layout} viewId={viewId} selected={selected} locked={locked}
-    onOpen={()=>handlers.current.open(node.id)} onNote={()=>handlers.current.note(node.id)} onMenu={(x,y)=>handlers.current.menu(node.id,x,y)}
+    onOpen={()=>handlers.current.open(node.id)} onNote={()=>handlers.current.note(node.id)}
+    onMenu={handlers.current.menu ? (x,y)=>handlers.current.menu?.(node.id,x,y) : undefined}
     onMove={handlers.current.move ? (x,y)=>handlers.current.move?.(node.id,x,y) : undefined}
     onDragStart={()=>handlers.current.start()} onCommit={()=>handlers.current.commit()} onDragEnd={()=>handlers.current.end()} />
 })
 const SceneEdge = memo(function SceneEdge({relation:r,d,arrow,stem,ax,ay,bx,by}: {
-  relation:Relation;d:string;arrow:string;stem:string;ax:number;ay:number;bx:number;by:number
+  relation: ReturnType<typeof createConnections>['segments'][number]['relation'];d:string;arrow:string;stem:string;ax:number;ay:number;bx:number;by:number
 }) {
   const secondary=r.type==='supplement',color=secondary?'#c0a385':'#91a796'
   return <g data-relation={r.id} style={{opacity:secondary ? 0.58 : 0.76}}>
@@ -32,7 +33,7 @@ const SceneEdge = memo(function SceneEdge({relation:r,d,arrow,stem,ax,ay,bx,by}:
 export function MapScene({ map, view, layout, heights, selected, onOpen, onNote, onMenu, onMove, onCommit, onDragStart, onDragEnd, locked = false }: {
   map: KnowledgeMap; view: View; layout: ViewLayout; heights: Heights; selected?: string
   onOpen: (id: string) => void; onNote: (id: string) => void
-  onMenu: (id: string, x: number, y: number) => void
+  onMenu?: (id: string, x: number, y: number) => void
   onMove?: (id: string, x: number, y: number) => void
   onCommit?: () => void; onDragStart?: () => void; onDragEnd?: () => void; locked?: boolean
 }) {

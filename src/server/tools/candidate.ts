@@ -2,6 +2,53 @@ import { validateMap } from '../../shared/validate-map.ts'
 import type { KnowledgeMap, MapSnapshot } from '../../shared/map-types.ts'
 import { AtlasError } from '../map-files.ts'
 import { changesSchema } from './schemas.ts'
+import { notePlots } from '../../shared/note-markdown.ts'
+
+// 历史坏块允许原样读写；只有新增或被修改的无效块阻止本次提交。
+export function validateCandidatePlots(
+  before: MapSnapshot['notes'], after: MapSnapshot['notes'], map: KnowledgeMap,
+): string[] {
+  const removals: string[] = []
+  for (const nodeId of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    const previousText = Object.hasOwn(before, nodeId) ? before[nodeId] : ''
+    const nextText = Object.hasOwn(after, nodeId) ? after[nodeId] : ''
+    if (previousText === nextText) continue
+    const previous = notePlots(previousText)
+    const next = notePlots(nextText)
+    const priorErrors = new Map<string, number>()
+    const errorKey = (plot: (typeof previous)[number]) => JSON.stringify([plot.error, plot.source])
+    for (const plot of previous) if (plot.error) {
+      const key = errorKey(plot)
+      priorErrors.set(key, (priorErrors.get(key) ?? 0) + 1)
+    }
+    for (const plot of next) if (plot.error) {
+      const key = errorKey(plot)
+      const count = priorErrors.get(key) ?? 0
+      if (!count) {
+        const notePath = map.nodes.find(node => node.id === nodeId)?.notePath ?? `notes/${nodeId}.md`
+        throw new AtlasError('invalid_data', '图块候选无效', [{
+          path: notePath, code: 'invalid_plot', message: plot.id ? `图块 ${plot.id}：${plot.error}` : plot.error,
+        }])
+      }
+      priorErrors.set(key, count - 1)
+    }
+    const remainingIds = new Map<string, number>()
+    for (const { id } of next) if (id) remainingIds.set(id, (remainingIds.get(id) ?? 0) + 1)
+    for (const plot of previous) {
+      if (!plot.id) continue
+      const count = remainingIds.get(plot.id) ?? 0
+      if (!count) removals.push(`图块 ${nodeId}/${plot.id}`)
+      else remainingIds.set(plot.id, count - 1)
+    }
+    // 解析失败、没有可识别 ID 的旧块也可能被移除。
+    for (const [key, count] of priorErrors) {
+      if (count && previous.some(plot => !plot.id && errorKey(plot) === key))
+        removals.push(`笔记 ${nodeId} 中的无效图块 × ${count}`)
+    }
+  }
+  return [...new Set(removals)]
+}
+
 export function candidate(snapshot: MapSnapshot, input: unknown) {
   const changes = changesSchema.parse(input) as any[]
   const map: KnowledgeMap = structuredClone(snapshot.map)
@@ -21,6 +68,7 @@ export function candidate(snapshot: MapSnapshot, input: unknown) {
       case 'set_map_title': map.title = c.title; break
       case 'add_node': map.nodes.push(c.node); notes[c.node.id] = ''; break
       case 'update_node': Object.assign(find(map.nodes,c.nodeId),c.fields); break
+      case 'insert_note_content': throw new AtlasError('invalid_data', '正文位置须先在当前笔记中核验')
       case 'set_note': case 'remove_note': {
         const n = find(map.nodes,c.nodeId); const text = c.op === 'set_note' ? c.markdown : ''
         notes[n.id] = text

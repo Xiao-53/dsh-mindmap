@@ -4,6 +4,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { atlasRemote } from '../shared/rpc.ts'
 import { createReferenceSource } from './reference-source.ts'
 import { registerSidebar, ATLAS_KIND } from './register-sidebar.tsx'
+declare const __NOTE_MATH_CSS__: string
 import atlasCss from './styles/atlas.css'
 import prototypeCss from './styles/prototype.css'
 export const inject = [
@@ -24,7 +25,7 @@ export async function apply(ctx: Context): Promise<void> {
 function registerClient(ctx: Context): void {
   ctx.effect(() => {
     const style = document.createElement('style')
-    style.textContent = atlasCss + '\n' + prototypeCss
+    style.textContent = atlasCss + '\n' + prototypeCss + '\n' + __NOTE_MATH_CSS__
     document.head.append(style)
     return () => style.remove()
   })

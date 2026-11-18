@@ -3,11 +3,12 @@ import { idSchema } from './validate-map.ts'
 import type { MapLayout, KnowledgeMap, Validation } from './map-types.ts'
 const finite = z.number().finite()
 export const layoutSchema = z.strictObject({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.union([z.literal(1), z.literal(2)]),
   mapId: idSchema,
   views: z.array(
     z.strictObject({
       viewId: idSchema,
+      mode: z.enum(['vertical', 'grid', 'columns']).optional(),
       nodes: z.array(
         z.strictObject({
           nodeId: idSchema,
@@ -45,6 +46,8 @@ export function validateLayout(
       })),
     }
   const errors: string[] = []
+  if (p.data.schemaVersion === 1 && p.data.views.some(v => v.mode !== undefined)) errors.push('v1 布局不能包含排列模式')
+  if (p.data.schemaVersion === 2 && p.data.views.some(v => !v.mode)) errors.push('v2 布局必须包含排列模式')
   if (p.data.mapId !== map.id) errors.push('mapId 必须与地图一致')
   const check = (ids: string[], path: string) => {
     if (new Set(ids).size !== ids.length) errors.push(`${path} 包含重复身份`)

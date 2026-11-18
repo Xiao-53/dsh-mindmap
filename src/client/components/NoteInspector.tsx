@@ -1,30 +1,42 @@
+import { NodeEditor } from './NodeEditor.tsx'
+import type { EditSession } from '../edit-session.ts'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { KnowledgeNode, MapSnapshot } from '../../shared/map-types.ts'
-import { RenderNote } from '../render-note.tsx'
-import { captureSelection } from '../selection.ts'
+import type { NoteAnchor } from '../../shared/note-position.ts'
+import { captureSelection, copyFormulaSelection } from '../selection.ts'
 import type { SelectionSnapshot } from '../selection.ts'
 import { readableNote, copyNote } from '../copy-note.ts'
-import { highlightReference } from '../reference-navigation.ts'
+import { focusNotePosition, focusPlotReference, highlightReference } from '../reference-navigation.ts'
 import type { ReferenceSnapshot } from '../reference-source.ts'
 import { referenceContentDigest } from '../reference-source.ts'
+import type { PlotData } from '../../shared/note-plot.ts'
 export function NoteInspector({
   snapshot,
+  editSession, viewId,
   node,
   scroll,
   onScroll,
   onClose,
+  onFinishEdit,
   onInsert,
+  onPlotReference,
+  onPositionReference,
   onRetry,
   notify,
   reference,
   offline, width = 320, onWidth,
 }: {
+  editSession?: EditSession
+  viewId?: string
   snapshot: MapSnapshot
   node: KnowledgeNode
   scroll: number
   onScroll: (top: number) => void
   onClose: () => void
-  onInsert: (selection: SelectionSnapshot) => void
+  onFinishEdit?: (finish: () => void) => void
+  onInsert?: (selection: SelectionSnapshot) => void
+  onPlotReference?: (plot: PlotData) => void
+  onPositionReference?: (anchor: NoteAnchor, text: string) => void
   onRetry?: () => void
   notify: (text: string) => void
   reference?: ReferenceSnapshot
@@ -32,65 +44,100 @@ export function NoteInspector({
   onWidth?: (width: number) => void
   offline?: boolean
 }) {
+  const [editing, setEditing] = useState(false)
+  const canEdit = !offline && !!editSession && !!viewId && snapshot.writable !== false
+  const inlineEditor = canEdit && editing
+  const canInsert = !!onInsert && !offline
+  const editBlocked = editSession && ['readonly', 'conflict', 'recovery_required'].includes(editSession.status)
   const readable = useRef<HTMLDivElement>(null)
   const scrollable = useRef<HTMLDivElement>(null)
   const close = useRef<HTMLButtonElement>(null)
   const resize = useRef<{ x: number; width: number }>()
   const [popup, setPopup] = useState({ x: 12, y: 60 })
-  const [selection, setSelection] = useState<SelectionSnapshot>()
   const [menu, setMenu] = useState(false)
+  const [referenceFallback, setReferenceFallback] = useState(false)
+  const toggleScroll = useRef<number>()
   const markdown = snapshot.notes[node.id] ?? ''
   useLayoutEffect(() => {
-    close.current?.focus()
+    close.current?.focus({ preventScroll: true })
   }, [node.id])
   useLayoutEffect(() => {
-    if (scrollable.current) scrollable.current.scrollTop = scroll
-  }, [node.id, scroll])
-  useEffect(() => {
-    const update = () => {
-      const area = readable.current
-      if (!area) return
-      const selected = captureSelection(area)
-      setSelection(selected)
-      setMenu(!!selected && !offline)
-      const range = window.getSelection()?.rangeCount ? window.getSelection()!.getRangeAt(0) : undefined
-      if (selected && range) {
-        const box = area.getBoundingClientRect(), rect = range.getBoundingClientRect()
-        setPopup({ x: Math.max(8, Math.min(rect.left-box.left, box.width-145)), y: Math.max(8, Math.min(rect.bottom-box.top+6, box.height-48)) })
-      }
+    if (scrollable.current) scrollable.current.scrollTop = toggleScroll.current ?? scroll
+    toggleScroll.current = undefined
+  }, [node.id, scroll, inlineEditor])
+  const toggleEdit = (enable: boolean) => {
+    toggleScroll.current = scrollable.current?.scrollTop
+    setEditing(enable)
+  }
+  const updateSelectionMenu = () => {
+    const area = readable.current
+    if (!area || !canInsert) {
+      setMenu(false)
+      return false
     }
-    document.addEventListener('selectionchange', update)
-    return () => document.removeEventListener('selectionchange', update)
-  }, [node.id])
+    const selection = area.ownerDocument.getSelection()
+    const selected = captureSelection(area, selection)
+    const rect = selected && selection?.getRangeAt(0).getBoundingClientRect?.()
+    const box = area.getBoundingClientRect()
+    const visible = !!selected && (!rect || (rect.bottom >= box.top && rect.top <= box.bottom))
+    if (visible && rect) {
+      setPopup({
+        x: Math.max(8, Math.min(rect.left - box.left, box.width - 145)),
+        y: Math.max(8, Math.min(rect.bottom - box.top + 6, box.height - 48)),
+      })
+    }
+    setMenu(visible)
+    return visible
+  }
   useEffect(() => {
-    setSelection(undefined)
-    setMenu(false)
-  }, [node.id, markdown])
+    const document = readable.current?.ownerDocument
+    updateSelectionMenu()
+    document?.addEventListener('selectionchange', updateSelectionMenu)
+    return () => document?.removeEventListener('selectionchange', updateSelectionMenu)
+  }, [node.id, canInsert, markdown])
   useEffect(() => {
-    if (!reference || reference.kind === 'node' || reference.nodeId !== node.id || !readable.current) return
+    if (!reference || reference.kind === 'node' || reference.nodeId !== node.id || !readable.current || inlineEditor) {
+      setReferenceFallback(false)
+      return
+    }
+    if (reference.kind === 'plot') {
+      const area = readable.current
+      const frame = requestAnimationFrame(() => setReferenceFallback(!focusPlotReference(area, reference, markdown)))
+      return () => cancelAnimationFrame(frame)
+    }
+    if (reference.kind === 'note-position') {
+      const controller = new AbortController()
+      setReferenceFallback(false)
+      void focusNotePosition(readable.current, reference, markdown, controller.signal).then(found => {
+        if (!controller.signal.aborted) setReferenceFallback(!found)
+      })
+      return () => controller.abort()
+    }
+    setReferenceFallback(false)
     const digest = referenceContentDigest(snapshot, node)
     if (
       digest !== reference.noteDigest ||
       !highlightReference(readable.current, reference)
     )
       notify('来源正文已变化或选文无法唯一定位；已定位节点，引用原文保持不变。')
-  }, [reference, node.id, snapshot.fingerprint])
+  }, [reference, node.id, snapshot.fingerprint, inlineEditor, markdown])
   return (
     <aside
       ref={readable}
-      className="inspector open"
+      className={`inspector open inspector-inline${canEdit ? ' inspector-editable' : ''}`}
       style={{ width }}
       aria-label={`${node.title} 的笔记`}
+      onCopy={e => copyFormulaSelection(e.currentTarget, e.nativeEvent)}
       onContextMenu={e => {
-        const current = readable.current ? captureSelection(readable.current) : undefined
-        if (current && !offline) { e.preventDefault(); setSelection(current); setMenu(true) }
+        if ((e.target as HTMLElement).closest('textarea,input,button,[contenteditable="true"]')) return
+        if (updateSelectionMenu()) e.preventDefault()
       }}
       onKeyDown={(e) => {
         if (e.key === 'Escape' && menu) {
           e.preventDefault()
           e.stopPropagation()
           setMenu(false)
-          readable.current?.focus()
+          readable.current?.focus({ preventScroll: true })
         }
       }}
     >
@@ -107,49 +154,55 @@ export function NoteInspector({
             ×
           </button>
         </div>
-        <h2>{node.title}</h2>
-        <div className="inspector-intro">{/^##\s+简介\s*$/m.test(markdown)
-          ? <RenderNote markdown={markdown} nodeId={node.id} resources={snapshot.resources} sectionFilter="intro"/>
-          : node.summary}</div>
       </header>
       <div
         ref={scrollable}
         className="inspector-body"
         tabIndex={0}
-        onScroll={(e) => onScroll(e.currentTarget.scrollTop)}
-        onContextMenu={(e) => {
-          const current = readable.current ? captureSelection(readable.current) : undefined
-          setSelection(current)
-          if (current) {
-            e.preventDefault()
-            setMenu(true)
-          }
+        onScroll={(e) => {
+          onScroll(e.currentTarget.scrollTop)
+          if (menu) updateSelectionMenu()
         }}
         onKeyDown={(e) => {
-          if ((e.shiftKey && e.key === 'F10') || e.key === 'ContextMenu') {
-            const current = readable.current ? captureSelection(readable.current) : undefined
-            setSelection(current)
-            if (current) {
-              e.preventDefault()
-              setMenu(true)
-            }
-          }
+          if (!canInsert || (e.target as HTMLElement).closest('textarea,input,button,[contenteditable="true"]')) return
+          if (((e.shiftKey && e.key === 'F10') || e.key === 'ContextMenu') && updateSelectionMenu()) e.preventDefault()
         }}
       >
-        <RenderNote
-          markdown={markdown}
-          nodeId={node.id}
-          resources={snapshot.resources}
-          sectionFilter="body"
-        />
+        <NodeEditor key={node.id} session={editSession} node={node} snapshot={snapshot} viewId={viewId} editing={inlineEditor}
+          onPlotReference={onPlotReference} onPositionReference={onPositionReference} onSelectionReference={onInsert}/>
+        {referenceFallback && (reference?.kind === 'plot' || reference?.kind === 'note-position') && <details className="note-plot" open>
+          <summary>{reference.kind === 'plot' ? '图块已变化或无法定位 · 引用快照' : '正文位置无法确认，请重新选点 · 引用快照'}</summary>
+          <pre>{reference.text}</pre>
+        </details>}
       </div>
       <div className="detail-footer">
         <button className="btn" onClick={() => { void copyNote(readableNote(node.title, node.summary, markdown)).then(result => notify(result.message)) }}>复制内容</button>
-        {onRetry && <button className="btn" onClick={onRetry}>重试添加到正文</button>}
+        {canEdit && <button className="btn" aria-pressed={inlineEditor} disabled={!editing && editBlocked} onClick={() => {
+          if (editing) {
+            const finish = () => toggleEdit(false)
+            if (onFinishEdit) onFinishEdit(finish)
+            else if (editSession?.finishInput()) {
+              void editSession.save()
+              finish()
+            }
+          } else {
+            setMenu(false)
+            window.getSelection()?.removeAllRanges()
+            toggleEdit(true)
+          }
+        }}>{inlineEditor ? '完成' : '编辑'}</button>}
+        {onRetry && <button className="btn" onClick={onRetry}>重试加入提问框</button>}
       </div>
-      {menu && !offline && (
+      {menu && canInsert && (
         <div className="selection-menu selection-popup" style={{ left: popup.x, top: popup.y }} role="toolbar" aria-label="选文操作" onMouseDown={e => e.preventDefault()}>
-          <button onClick={() => { if (selection) onInsert(selection); setMenu(false); window.getSelection()?.removeAllRanges() }}>添加到正文</button>
+          <button type="button" onClick={() => {
+            const area = readable.current
+            const selection = area?.ownerDocument.getSelection()
+            const current = area && captureSelection(area, selection)
+            setMenu(false)
+            selection?.removeAllRanges()
+            if (current) onInsert?.(current)
+          }}>添加到正文</button>
         </div>
       )}
     </aside>

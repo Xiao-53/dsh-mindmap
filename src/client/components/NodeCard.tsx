@@ -115,8 +115,8 @@ export function NodeCard({
           if (!locked) onOpen?.()
         }
         if (
-          (event.shiftKey && event.key === 'F10') ||
-          event.key === 'ContextMenu'
+          onMenu && ((event.shiftKey && event.key === 'F10') ||
+          event.key === 'ContextMenu')
         ) {
           event.preventDefault()
           const rect = event.currentTarget.getBoundingClientRect()
@@ -124,7 +124,7 @@ export function NodeCard({
         }
       }}
       onContextMenu={(event) => {
-        if (!measure) {
+        if (!measure && onMenu) {
           event.preventDefault()
           event.stopPropagation()
           onMenu?.(event.clientX, event.clientY)

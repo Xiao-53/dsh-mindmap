@@ -14,6 +14,7 @@ class Memory implements TransactionPort {
     assert.equal(this.files.get(path)?.version ?? null,expected,'条件写入不覆盖外部版本')
     this.files.set(path,{text,version:String(++this.version)})
     if(this.after) this.boundary()
+    return String(this.version)
   }
   async remove(path:string,expected:string) {
     this.boundary(); assert.equal(this.files.get(path)?.version,expected)
@@ -75,4 +76,19 @@ test('提交前校验失败完整回退，不覆盖未知文件',async()=>{
  const {port,changes}=setup();port.files.set('unknown.txt',{text:'keep',version:'unknown'})
  await assert.rejects(new Transactions(port,'owner').commit('op','request',changes,result,async()=>{throw new Error('版本冲突')}),{code:'failed_rolled_back'})
  assert.equal(port.files.get('map.json')?.text,'before');assert.equal(port.files.get('unknown.txt')?.text,'keep')
+})
+
+test('外部用相同内容替换新建图片后，回退保留外部版本和活动记录',async()=>{
+  const port=new Memory()
+  const image='assets/pixel.image.json'
+  const changes:Mutation[]=[{path:image,before:null,after:'image'},{path:'notes/new.md',before:null,after:'![图]'}]
+  port.hook=path=>{
+    if(path==='notes/new.md'){
+      port.files.set(image,{text:'image',version:'external'})
+      throw new Error('正文写入失败')
+    }
+  }
+  await assert.rejects(new Transactions(port,'owner').commit('asset','request',changes,result,verify),{code:'recovery_required'})
+  assert.equal(port.files.get(image)?.version,'external')
+  assert.ok(port.files.has('.transactions/active.json'))
 })

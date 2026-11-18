@@ -1,16 +1,17 @@
 import type { Context } from '@deepseek-ai/cordis'
-import type { SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ISessions, SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import { ATLAS_KIND } from './register-sidebar.tsx'
 
 // 订阅当前会话的实时工具结果；历史加载、预览、失败和其他会话均不触发打开。
 export function registerCompletedMapNavigation(ctx: Context): void {
   ctx.effect(() => {
+    const sessions = ctx.sessions as unknown as Pick<ISessions, 'binding' | 'list'>
     let owner: SessionBinding | undefined
     let unsubscribe = () => {}
     const bind = () => {
       const id = ctx.sidebarRight.mounted.getSnapshot()
-      const binding = id ? ctx.sessions.binding(id) : undefined
+      const binding = id ? sessions.binding(id) : undefined
       if (binding === owner) return
       unsubscribe(); owner = binding
       if (!binding) { unsubscribe = () => {}; return }
@@ -48,14 +49,14 @@ export function registerCompletedMapNavigation(ctx: Context): void {
             } catch { /* 只有插件成功结果的规范JSON可触发导航。 */ }
           }
         }
-        if (mapId && ctx.sessions.binding(binding.sessionId) === binding && ctx.sidebarRight.mounted.getSnapshot() === binding.sessionId) {
+        if (mapId && sessions.binding(binding.sessionId) === binding && ctx.sidebarRight.mounted.getSnapshot() === binding.sessionId) {
           try { ctx.sidebarRight.openTab(ATLAS_KIND, { params: { mapId } }) }
           catch (error) { ctx.logger.warn('导图已保存，但自动打开失败', error) }
         }
       })
     }
     const unmount = ctx.sidebarRight.mounted.subscribe(bind)
-    const unlist = ctx.sessions.list.subscribe(bind)
+    const unlist = sessions.list.subscribe(bind)
     bind()
     return () => { unmount(); unlist(); unsubscribe() }
   })

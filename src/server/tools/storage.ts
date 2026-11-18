@@ -15,13 +15,18 @@ export function transactionPort(ctx: Context, scope: WorkspaceFileScope, mapId: 
     const map = await ctx.fs.resolve(mapPath(mapId,'.'),{cwd:scope.workspaceRoot,signal})
     const file = await ctx.fs.resolve(relative,{cwd:scope.workspaceRoot,signal})
     if(!ctx.fs.contains(root,data) || !ctx.fs.contains(data,map) || !ctx.fs.contains(map,file) || map.targetKey === file.targetKey) throw new AtlasError('path_outside_map','真实路径越过地图边界')
+    if (/^assets\/[A-Za-z0-9_-]+\.image\.json$/.test(path)) {
+      const assets=await ctx.fs.resolve(mapPath(mapId,'assets'),{cwd:scope.workspaceRoot,signal})
+      if(!ctx.fs.contains(map,assets)||!ctx.fs.contains(assets,file)||assets.targetKey===file.targetKey)
+        throw new AtlasError('path_outside_map','图片目标必须位于本图 assets')
+    }
     const entry = await ctx.fs.lstat(relative,{cwd:scope.workspaceRoot},signal)
     if(entry && entry.type !== 'file') throw new AtlasError('path_outside_map','写入目标必须为普通文件')
     return file
   }
   return {
     async read(path) { const t = await target(path); const before = await ctx.fs.stat(t,signal); if(!before) return null; const text = await ctx.fs.readText(t,signal); if((await ctx.fs.stat(t,signal))?.version !== before.version) throw new AtlasError('version_conflict','文件读取中变化'); return {text,version:String(before.version)} },
-    async put(path,text,version) { await ctx.fs.writeText(await target(path),text,version === null ? {kind:'createIfAbsent'} : {kind:'replaceIfVersion',version:version as FsVersion},signal,policy) },
+    async put(path,text,version) { const written = await ctx.fs.writeText(await target(path),text,version === null ? {kind:'createIfAbsent'} : {kind:'replaceIfVersion',version:version as FsVersion},signal,policy); return String(written.version) },
     async remove(path,version) { await ctx.fs.deleteFile(await target(path),{version:version as FsVersion},signal,policy) },
   }
 }

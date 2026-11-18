@@ -1,3 +1,4 @@
+import type { EditRequest, EditStatusRequest, EditStatusResult } from '../server/edit-service.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-api-gateway/client'
@@ -7,6 +8,8 @@ import type { MapSnapshot, MapLayout, MapListing } from '../shared/map-types.ts'
 import { watchPaths } from '../server/watch-map.ts'
 import type { LibraryState, MapLibrary } from '../shared/library.ts'
 export interface HostAdapter {
+  editStatus?(request: EditStatusRequest, signal: AbortSignal): Promise<EditStatusResult>
+  commitEdit?(request: EditRequest, signal: AbortSignal): Promise<{snapshot:MapSnapshot; committedFingerprint:string; noChange:boolean}>
   cleanupCreate?(mapId: string, operationId: string, workspaceKey: string, signal: AbortSignal): Promise<void>
   watchLibrary?(listing: MapListing, changed: (externalChange?: boolean) => void, signal: AbortSignal): () => void
   purge(mapIds: string[], previous: LibraryState, signal: AbortSignal): Promise<{ deletedIds: string[]; failures: { id: string; message: string }[]; library: LibraryState }>
@@ -45,17 +48,19 @@ export function createHostAdapter(
     if (!result.ok) throw new Error(result.error.message)
     const body = JSON.parse(result.value)
     if (!body.ok)
-      throw new Error(
+      throw Object.assign(new Error(
         [
           body.message,
           ...(body.diagnostics ?? []).map(
             (d: { path: string; message: string }) => `${d.path}：${d.message}`,
           ),
         ].join('\n'),
-      )
+      ), { code: body.code, diagnostics: body.diagnostics, operationId:body.operationId, commitState:body.commitState })
     return body.value
   }
   return {
+    editStatus: (request, signal) => call(request, signal),
+    commitEdit: (request, signal) => call(request, signal),
     cleanupCreate: async (mapId, operationId, expectedWorkspaceKey, signal) => { await call({op:'cleanupCreate',mapId,operationId,expectedWorkspaceKey},signal) },
     watchLibrary(listing, changed, signal) {
       const controller = new AbortController()

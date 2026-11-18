@@ -1,6 +1,10 @@
+import { isFormula } from '../shared/note-markdown.ts'
 import type { Token, Tokens } from 'marked'
 import { noteSections } from '../shared/note-sections.ts'
+import { isPlot, plotText } from '../shared/note-plot.ts'
 export function tokenText(token: Token): string {
+  if (isPlot(token)) return token.data ? plotText(token.data) : token.source
+  if (isFormula(token)) return token.source
   const t = token as Token & {
     tokens?: Token[]
     text?: string
@@ -26,7 +30,7 @@ export function readableNote(
     title,
     summary,
     ...noteSections(markdown).flatMap((section) => [
-      section.title,
+      section.titleTokens?.map(tokenText).join('') ?? section.title,
       ...section.tokens.map(tokenText),
     ]),
   ]

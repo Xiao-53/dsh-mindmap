@@ -2,13 +2,19 @@
 export interface TextRecord { text: string; version: string }
 export interface TransactionPort {
   read(path: string): Promise<TextRecord | null>
-  put(path: string, text: string, expected: string | null): Promise<void>
+  put(path: string, text: string, expected: string | null): Promise<void | string>
   remove(path: string, expected: string): Promise<void>
 }
 export class CommitError extends Error { code: string
   constructor(code: string, message: string) { super(message); this.code = code } }
-export interface Mutation { path: string; before: TextRecord | null; after: string | null }
+export interface Mutation { path: string; before: TextRecord | null; after: string | null; afterVersion?: string }
 interface Journal { owner: string; operationId: string; request: string; state: 'prepared' | 'committed'; changes: Mutation[]; result: unknown }
+const assetPath = (path: string) => /^assets\/[A-Za-z0-9_-]{1,128}\.image\.json$/.test(path)
+function journalText(journal: Journal) {
+  const text=JSON.stringify(journal)
+  if(new TextEncoder().encode(text).length>48*1024*1024)throw new CommitError('resource_too_large','事务记录超过 48 MiB')
+  return text
+}
 const active = '.transactions/active.json'
 const receipt = (id: string) => {
   if(!/^[A-Za-z0-9_-]+$/.test(id)) throw new CommitError('invalid_data','操作ID无效')
@@ -16,8 +22,8 @@ const receipt = (id: string) => {
 }
 function parseJournal(text: string): Journal {
   const j = JSON.parse(text)
-  const validPath = (path: unknown) => typeof path === 'string' && !path.includes('\\') && !path.startsWith('/') && !path.split('/').some(p => !p || p === '.' || p === '..' || p === '.transactions' || p === 'exports' || p.includes(':')) && (path === 'map.json' || path === 'layout.json' || path.endsWith('.md'))
-  if(!j || typeof j.owner !== 'string' || typeof j.request !== 'string' || !['prepared','committed'].includes(j.state) || !Array.isArray(j.changes) || j.changes.some((c: any) => !c || !validPath(c.path) || (c.after !== null && typeof c.after !== 'string') || (c.before !== null && (!c.before || typeof c.before.text !== 'string' || typeof c.before.version !== 'string'))) || new Set(j.changes.map((c: any)=>c.path)).size !== j.changes.length) throw new CommitError('recovery_required','恢复记录无效；未修改文件，保留资料')
+  const validPath = (path: unknown) => typeof path === 'string' && !path.includes('\\') && !path.startsWith('/') && !path.split('/').some(p => !p || p === '.' || p === '..' || p === '.transactions' || p === 'exports' || p.includes(':')) && (path === 'map.json' || path === 'layout.json' || path.endsWith('.md') || /^assets\/[A-Za-z0-9_-]{1,128}\.image\.json$/.test(path))
+  if(!j || typeof j.owner !== 'string' || typeof j.request !== 'string' || !['prepared','committed'].includes(j.state) || !Array.isArray(j.changes) || j.changes.some((c: any) => !c || !validPath(c.path) || (c.afterVersion !== undefined && typeof c.afterVersion !== 'string') || (assetPath(c.path) && (c.before !== null || typeof c.after !== 'string')) || (c.after !== null && typeof c.after !== 'string') || (c.before !== null && (!c.before || typeof c.before.text !== 'string' || typeof c.before.version !== 'string'))) || new Set(j.changes.map((c: any)=>c.path)).size !== j.changes.length) throw new CommitError('recovery_required','恢复记录无效；未修改文件，保留资料')
   receipt(j.operationId)
   return j
 }
@@ -45,6 +51,7 @@ export class Transactions {
         const now = await this.port.read(c.path)
         if((now?.text ?? null) === (c.before?.text ?? null)) continue
         if((now?.text ?? null) !== c.after) throw new CommitError('recovery_required',`外部冲突，保留恢复资料：${c.path}`)
+        if(assetPath(c.path) && now && (!c.afterVersion || now.version!==c.afterVersion))throw new CommitError('recovery_required',`资源写入版本无法证明，保留文件：${c.path}`)
         if(c.before) await this.port.put(c.path,c.before.text,now?.version ?? null)
         else if(now) await this.port.remove(c.path,now.version)
       }
@@ -64,26 +71,40 @@ export class Transactions {
     const prior = await this.replay(operationId,request)
     if(prior !== undefined) return prior
     const journal: Journal = {owner:this.owner,operationId,request,state:'prepared',changes,result}
+    if (new TextEncoder().encode(JSON.stringify(journal)).length + 4096 + changes.filter(c=>assetPath(c.path)).length*512 > 48 * 1024 * 1024) throw new CommitError('resource_too_large','事务记录超过 48 MiB，未写入')
     parseJournal(JSON.stringify(journal))
     if(await this.port.read(active)) throw new CommitError('recovery_required','已有活动操作；原操作结束后再恢复')
     let committed = false
     let claimed = false
     try {
-      await this.port.put(active,JSON.stringify(journal),null)
+      await this.port.put(active,journalText(journal),null)
       claimed = true
       await verify()
       for(const c of changes) {
         const now = await this.port.read(c.path)
         if((now?.version ?? null) !== (c.before?.version ?? null)) throw new CommitError('version_conflict',`文件变化：${c.path}`)
         if(c.after === null) { if(now) await this.port.remove(c.path,now.version) }
-        else await this.port.put(c.path,c.after,now?.version ?? null)
+        else {
+          const writtenVersion=await this.port.put(c.path,c.after,now?.version ?? null)
+          if(assetPath(c.path)) {
+            if(!writtenVersion || writtenVersion.length>256)throw new CommitError('recovery_required','宿主未返回资源写入版本，保留恢复资料')
+            c.afterVersion=writtenVersion
+            const lock=await this.port.read(active)
+            if(!lock || JSON.parse(lock.text).owner!==this.owner)throw new CommitError('recovery_required','资源提交期间认领变化')
+            await this.port.put(active,journalText(journal),lock.version)
+          }
+        }
       }
-      for(const c of changes) if((await this.port.read(c.path))?.text !== (c.after ?? undefined)) throw new CommitError('version_conflict',`提交复读失败：${c.path}`)
+      for(const c of changes) {
+        const written=await this.port.read(c.path)
+        if(written?.text !== (c.after ?? undefined) || (c.afterVersion && written?.version!==c.afterVersion))
+          throw new CommitError('version_conflict',`提交复读失败：${c.path}`)
+      }
       if(finalize) journal.result = await finalize()
       const lock = await this.port.read(active)
       if(!lock || JSON.parse(lock.text).owner !== this.owner) throw new CommitError('recovery_required','操作记录变化')
       journal.state = 'committed'
-      await this.port.put(active,JSON.stringify(journal),lock.version)
+      await this.port.put(active,journalText(journal),lock.version)
       committed = true
       await this.finish(journal)
       const done = await this.port.read(active)

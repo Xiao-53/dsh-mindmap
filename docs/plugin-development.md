@@ -1,3 +1,13 @@
+# 0.4.0-preview.2 原位编辑与自动保存
+
+新候选已启用自动保存。安装包和交互说明见 [交接记录](validation/edit-layout-history.md)。以下为先前候选的历史记录。
+
+# 0.4.0-preview.1 编辑预览
+
+本地候选为 `dsh-mindmap-0.4.0-preview.1.tgz`。节点内部编辑、PNG/JPEG/WebP 图片、纵向/田字型/多列与重置、30 步撤销/重做的预览代码已完成。**本预览不开放手动修改写入，包括拖动保存**；当前已验收稳定版本仍是 0.3.12。不要把此包作为已完成自动保存的版本使用。
+
+新写入由 `src/server/edit-service.ts` 的 EDIT_WRITES_VERIFIED 门槛控制；不能仅改开关就视为验证通过。完整条件及未执行项见 [交接记录](validation/edit-layout-history.md) 与 [内部证据清单](validation/edit-layout-history-internal.md)。本轮仅静态核对、构建、打包；无自动测试、类型检查、浏览器检查、安装或发布。
+
 # 0.3.12 当前交付
 
 本地安装包`dsh-mindmap-0.3.12.tgz`，修正回收站分类点击：点击“回收站”返回其列表，点击“未完成创建”进入其列表，重复点击不反向切换。已构建，未运行自动测试、类型检查、浏览器或视觉验收；见[人工交接](validation/0.3.12.md)。

@@ -1,3 +1,5 @@
+import { insertAnchoredNote } from '../../shared/note-position.ts'
+import { overlayFiles, fileMutations } from '../edit-service.ts'
 import { serializeMap } from '../map-queue.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -10,7 +12,7 @@ import { libraryFiles } from '../library-files.ts'
 import { digest } from '../../shared/fingerprint.ts'
 import { fillLayout } from '../../shared/layout.ts'
 import { validateMap } from '../../shared/validate-map.ts'
-import { candidate } from './candidate.ts'
+import { candidate, validateCandidatePlots } from './candidate.ts'
 import { transactionPort, releaseFailedCreate } from './storage.ts'
 import { Transactions } from '../transaction.ts'
 import { cleanupCreate } from '../cleanup-create.ts'
@@ -90,23 +92,38 @@ export function registerTools(ctx: Context) {
     }
     if(snapshot && snapshot.fingerprint !== args.expectedFingerprint) throw new AtlasError('version_conflict','地图变化，请重新读取')
     let proposal
+    let newAnchoredPath: string | undefined
     if(name === 'atlas_create') {
       const map = {...args.content,id:mapId,schemaVersion:1}
       for(const nodeId of Object.keys(args.notes)) if(!map.nodes.some((n:any)=>n.id===nodeId)) throw new AtlasError('invalid_data',`笔记节点不存在：${nodeId}`)
       for(const n of map.nodes) if(args.notes[n.id]) n.notePath=`notes/${n.id}.md`
       const checked=validateMap(map,mapId); if(!checked.ok) throw new AtlasError('invalid_data','创建结构无效',checked.diagnostics)
       proposal={map:checked.value,notes:args.notes,affectedIds:map.nodes.map((n:any)=>n.id),removals:[] as string[]}
-    } else proposal=candidate(snapshot!,args.changes)
+    } else {
+      const change = args.changes[0]
+      if (change.op === 'insert_note_content') {
+        const node = snapshot!.map.nodes.find(item => item.id === change.nodeId)
+        if (!node || change.anchor.mapId !== mapId || change.anchor.nodeId !== node.id)
+          throw new AtlasError('invalid_data', '正文位置引用与目标地图或节点不一致')
+        let markdown: string
+        try { markdown = await insertAnchoredNote(snapshot!.notes[node.id] ?? '', change.anchor, change.kind, change.markdown) }
+        catch (error) { throw new AtlasError('invalid_data', (error as Error).message) }
+        proposal = candidate(snapshot!, [{ op: 'set_note', nodeId: node.id, markdown }])
+        if (!node.notePath) {
+          newAnchoredPath = proposal.map.nodes.find(item => item.id === node.id)?.notePath
+          if (newAnchoredPath && await txPort.read(newAnchoredPath))
+            throw new AtlasError('version_conflict', '笔记目标已被占用，原文件已保留')
+        }
+      } else proposal = candidate(snapshot!, args.changes)
+    }
+    proposal.removals.push(...validateCandidatePlots(snapshot?.notes ?? {}, proposal.notes, proposal.map))
     const files = new Map<string,string|null>()
     if(!snapshot || JSON.stringify(snapshot.map)!==JSON.stringify(proposal.map)) files.set('map.json',text(proposal.map))
     for(const n of proposal.map.nodes) if(n.notePath) files.set(n.notePath,proposal.notes[n.id] ?? '')
     for(const n of snapshot?.map.nodes ?? []) if(n.notePath && !proposal.map.nodes.some(next=>next.notePath===n.notePath)) files.set(n.notePath,null)
     const membership = (map: MapSnapshot['map']) => map.views.map(v=>({id:v.id,groups:v.groups.map(g=>g.id),occurrences:v.occurrences}))
     if(snapshot?.layout && JSON.stringify(membership(snapshot.map))!==JSON.stringify(membership(proposal.map))) files.set('layout.json',text(fillLayout(proposal.map,snapshot.layout,{})))
-    const overlay: MapFilePort = {...port,
-      absent: async path => { if(path===mapPath(mapId,'.transactions/active.json')) return true; const relative=path.slice(('dsh-knowledge-maps/'+mapId+'/').length); return files.has(relative) ? files.get(relative)===null : port.absent(path) },
-      read: async (path,id,assetsOnly) => { const relative=path.slice(('dsh-knowledge-maps/'+mapId+'/').length); if(files.has(relative)) {const content=files.get(relative); if(content===null) throw new AtlasError('invalid_data','候选引用已删除文件'); return {bytes:new TextEncoder().encode(content!),version:'candidate',identity:path} }; return port.read(path,id,assetsOnly) },
-    }
+    const overlay = overlayFiles(port,mapId,files)
     // 候选包含笔记资源解析与布局校验，正式写入前完成。
     await readSnapshot(overlay,mapId)
     if(name === 'atlas_preview') {
@@ -141,8 +158,9 @@ export function registerTools(ctx: Context) {
       reservationReady = true
       if(!reservation) await txPort.put(path,request,null)
     }
-    const mutations=[]
-    for(const [path,after] of files) { const before=await txPort.read(path); if((before?.text ?? null)!==after) mutations.push({path,before,after}) }
+    const mutations=await fileMutations(txPort,files)
+    if (newAnchoredPath && !mutations.some(item => item.path === newAnchoredPath && item.before === null))
+      throw new AtlasError('version_conflict', '笔记目标已被占用，原文件已保留')
     const result={status:'success',operationId:args.operationId,mapId,affectedIds:proposal.affectedIds,summary:name==='atlas_create'?'思维导图已创建':'变更已保存'}
     const saved=await tx.commit(args.operationId,request,mutations,result,async()=>{
       exec.signal.throwIfAborted()
@@ -172,7 +190,7 @@ export function registerTools(ctx: Context) {
     ['atlas_read',readSchema,'读取完整结构及分页笔记、稳定ID和版本；沿nextCursor读取剩余笔记。'],
     ['atlas_create',createSchema,'创建通用思维导图：架构设计、知识整理等。只提供内容和Markdown，不提供路径、布局或界面代码。'],
     ['atlas_preview',previewSchema,'预览有序变更及删除影响，不保存。'],
-    ['atlas_apply',applySchema,'条件提交最小变更；删除须当前版本预览与宿主授权。相同请求重试复用operationId。'],
+    ['atlas_apply',applySchema,'条件提交最小变更；正文位置引用使用单项 insert_note_content。删除须当前版本预览与宿主授权。相同请求重试复用operationId。'],
     ['atlas_cleanup_create',cleanupCreateSchema,'用户要求清理时，清理atlas_list.incompleteCreates中的指定记录并作废原创建请求；须宿主授权。拒绝完整地图、未知内容与活动事务，不接受任意路径。'],
   ] as const) ctx.tools.register(defineTool({name,description,parameters:parameters(schema),output:{schema:{type:'json'},render:(_args,value)=>[{type:'text',text:JSON.stringify(value)}]},async execute(args,exec) { try{
       const {scope} = await binding(exec)

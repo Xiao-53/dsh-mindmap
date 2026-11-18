@@ -1,3 +1,4 @@
+import { commitEdit, commitEditSchema, editStatus, editStatusSchema } from './edit-service.ts'
 import { purgeMap } from './purge-map.ts'
 import { cleanupCreate } from './cleanup-create.ts'
 import { serializeMap } from './map-queue.ts'
@@ -20,6 +21,8 @@ import { libraryFiles } from './library-files.ts'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-session'
 const requestSchema = z.discriminatedUnion('op', [
+  commitEditSchema,
+  editStatusSchema,
   z.strictObject({ op: z.literal('list') }),
   z.strictObject({ op: z.literal('cleanupCreate'), mapId: idSchema, operationId: idSchema, expectedWorkspaceKey: z.string().min(1) }),
   z.strictObject({ op: z.literal('purge'), mapIds: z.array(idSchema).min(1), version: z.string().nullable(), expectedWorkspaceKey: z.string().min(1) }),
@@ -55,8 +58,11 @@ export class MapService extends TypertRemoteService {
     payload: string,
     signal: AbortSignal,
   ): Promise<string> {
+    let operationId:string|undefined
     try {
+      if(new TextEncoder().encode(payload).length>24*1024*1024)throw new AtlasError('resource_too_large','请求超过 24 MiB')
       const req = requestSchema.parse(JSON.parse(payload))
+      operationId='operationId' in req?req.operationId:undefined
       if (
         req.op !== 'list' &&
         req.expectedWorkspaceKey !== undefined &&
@@ -69,7 +75,7 @@ export class MapService extends TypertRemoteService {
       const key = `${workspaceFileScope.workspaceRoot}\0${'mapId' in req ? req.mapId : ''}`
       const run = async () => {
         signal.throwIfAborted()
-        const writes = req.op === 'cleanupCreate' || req.op === 'purge' || req.op === 'rename' || req.op === 'create' || req.op === 'saveLibrary' || req.op === 'saveLayout'
+        const writes = req.op === 'commitEdit' || req.op === 'cleanupCreate' || req.op === 'purge' || req.op === 'rename' || req.op === 'create' || req.op === 'saveLibrary' || req.op === 'saveLayout'
         const session = writes ? this.ctx.sessions.get(workspaceFileScope.sessionId) : undefined
         if (writes && !session) throw new AtlasError('session_unavailable', '来源会话未加载，无法保存')
         const policy = writes ? this.ctx.sandboxPolicy.resolve({ session }) : undefined
@@ -122,6 +128,8 @@ export class MapService extends TypertRemoteService {
         }
         const currentLibrary = (await library.read()).data
         if (currentLibrary.deletedMapIds?.includes(req.mapId) || currentLibrary.purgedMapIds?.includes(req.mapId)) throw new AtlasError('map_deleted', '此导图已在回收站，请先恢复')
+        if (req.op === 'editStatus') return editStatus(this.ctx,workspaceFileScope,req,signal)
+        if (req.op === 'commitEdit') return commitEdit(this.ctx,workspaceFileScope,req,policy!,signal)
         if (req.op === 'rename') {
           const snapshot = await readSnapshot(port, req.mapId)
           if (snapshot.map.title !== req.previousTitle) throw new AtlasError('version_conflict', '导图名称已变化，请刷新后重试')
@@ -130,7 +138,7 @@ export class MapService extends TypertRemoteService {
           return null
         }
         return req.op === 'read'
-            ? readSnapshot(port, req.mapId)
+            ? readSnapshot(port, req.mapId, true)
             : saveLayout(port, req.mapId, req.expectedFingerprint, req.layout, req.manual)
       }
       return JSON.stringify({ ok: true, value: await (req.op === 'list' ? run() : serializeMap(key,run)) })
@@ -138,6 +146,8 @@ export class MapService extends TypertRemoteService {
       signal.throwIfAborted()
       return JSON.stringify({
         ok: false,
+        operationId,
+        commitState: errorCode(e)==='failed_rolled_back'?'rolled_back':['verification_required','permission_denied','invalid_data','resource_too_large','workspace_changed','session_unavailable'].includes(errorCode(e))?'not_applied':'unknown',
         code: errorCode(e),
         message: e instanceof Error ? e.message : String(e),
         diagnostics:

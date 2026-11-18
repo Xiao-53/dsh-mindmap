@@ -16,7 +16,7 @@ export function fillLayout(
   heights: Heights,
 ): MapLayout {
   return {
-    schemaVersion: 1,
+    schemaVersion: previous?.schemaVersion ?? 1,
     mapId: map.id,
     views: map.views.map((view) => {
       const old = previous?.views.find((v) => v.viewId === view.id)
@@ -86,7 +86,7 @@ export function fillLayout(
           groupY = bottom + 19
         }
       }
-      return { viewId: view.id, nodes, groups }
+      return { viewId: view.id, nodes, groups, ...(previous?.schemaVersion===2 ? { mode: old?.mode??'vertical' } : {}) }
     }),
   }
 }
@@ -110,4 +110,42 @@ export function viewBounds(
     width: Math.max(...rects.map((r) => r.x + r.width)) - x,
     height: Math.max(...rects.map((r) => r.y + r.height)) - y,
   }
+}
+
+export function groupCount(view: import('./map-types.ts').View): number {
+  return view.groups.length + (view.occurrences.some(o => !o.groupId) ? 1 : 0)
+}
+export function availableModes(view: import('./map-types.ts').View): import('./map-types.ts').LayoutMode[] {
+  const count = groupCount(view)
+  return ['vertical', ...(count >= 2 ? ['grid'] : []), ...(count >= 7 ? ['columns'] : [])] as import('./map-types.ts').LayoutMode[]
+}
+export function relayoutView(map: KnowledgeMap, viewId: string, mode: import('./map-types.ts').LayoutMode, heights: Heights): ViewLayout {
+  const view = map.views.find(v => v.id === viewId)
+  if (!view || !availableModes(view).includes(mode)) throw new Error('当前视图不支持此排列方式')
+  const buckets = [...view.groups.map(g => g.id), ...(view.occurrences.some(o => !o.groupId) ? [undefined] : [])]
+  const boxes = buckets.map(groupId => {
+    const members = view.occurrences.filter(o => o.groupId === groupId)
+    const nodes: NodeLayout[] = []
+    let y = 62
+    for (let i = 0; i < members.length; i += 3) {
+      const row = members.slice(i, i + 3)
+      row.forEach((o, col) => nodes.push({ nodeId:o.nodeId, x:24 + col*327, y, width:236, manual:false }))
+      y += Math.max(...row.map(o => nodeHeight(heights,viewId,o.nodeId))) + 32
+    }
+    return { groupId, nodes, width:Math.max(320, Math.min(3,members.length)*327 + 24), height:Math.max(178,y) }
+  })
+  const columns = mode === 'vertical' ? 1 : mode === 'grid' ? 2 : groupCount(view) <= 12 ? 3 : 4
+  const widths = Array.from({length:columns},(_,col) => Math.max(0,...boxes.filter((_,i)=>i%columns===col).map(b=>b.width)))
+  const nodes: NodeLayout[] = [], groups: GroupLayout[] = []
+  let top = 48
+  for (let i=0;i<boxes.length;i+=columns) {
+    const row=boxes.slice(i,i+columns); let left=42
+    row.forEach((box,col)=>{
+      nodes.push(...box.nodes.map(n=>({...n,x:n.x+left,y:n.y+top})))
+      if(box.groupId) groups.push({groupId:box.groupId,x:left,y:top,width:box.width,height:box.height})
+      left+=widths[col]+48
+    })
+    top+=Math.max(...row.map(b=>b.height))+48
+  }
+  return {viewId,mode,nodes,groups}
 }

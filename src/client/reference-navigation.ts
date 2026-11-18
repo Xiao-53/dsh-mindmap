@@ -1,5 +1,10 @@
+import { projectedCaret } from './note-rich-text.ts'
+import { noteProjection } from './selection.ts'
 import type { MapSnapshot } from '../shared/map-types.ts'
 import type { ReferenceSnapshot } from './reference-source.ts'
+import { locateNoteAnchor } from '../shared/note-position.ts'
+import { noteBlocks, notePlots } from '../shared/note-markdown.ts'
+import { plotContent } from '../shared/note-plot.ts'
 export function resolveReference(
   ref: ReferenceSnapshot,
   snapshot: MapSnapshot,
@@ -54,27 +59,25 @@ export function uniqueSelection(
     ? { start: matches[0], end: matches[0] + ref.text.length }
     : undefined
 }
+function scrollInNote(container: HTMLElement, target: Pick<DOMRect, 'top' | 'bottom'>) {
+  const scroller = container.querySelector<HTMLElement>('.inspector-body')
+  if (!scroller) return
+  const viewport = scroller.getBoundingClientRect()
+  const scale = viewport.height / scroller.offsetHeight || 1
+  if (target.top < viewport.top) scroller.scrollTop += (target.top - viewport.top) / scale
+  else if (target.bottom > viewport.bottom) {
+    scroller.scrollTop += Math.min(target.top - viewport.top, target.bottom - viewport.bottom) / scale
+  }
+}
 export function highlightReference(
   container: HTMLElement,
   ref: ReferenceSnapshot,
 ): boolean {
-  const location = uniqueSelection(container.textContent ?? '', ref)
+  const projection = noteProjection(container)
+  const location = uniqueSelection(projection.text, ref)
   if (!location) return false
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
-  let offset = 0
-  let start: { node: Node; offset: number } | undefined
-  let end: { node: Node; offset: number } | undefined
-  while (walker.nextNode()) {
-    const node = walker.currentNode
-    const length = node.textContent?.length ?? 0
-    if (!start && offset + length >= location.start)
-      start = { node, offset: location.start - offset }
-    if (offset + length >= location.end) {
-      end = { node, offset: location.end - offset }
-      break
-    }
-    offset += length
-  }
+  const start = projection.boundary(location.start, false)
+  const end = projection.boundary(location.end, true)
   if (!start || !end) return false
   const range = document.createRange()
   range.setStart(start.node, start.offset)
@@ -82,6 +85,44 @@ export function highlightReference(
   const selection = window.getSelection()
   selection?.removeAllRanges()
   selection?.addRange(range)
-  start.node.parentElement?.scrollIntoView({ block: 'nearest' })
+  if (start.node.parentElement) scrollInNote(container, start.node.parentElement.getBoundingClientRect())
+  return true
+}
+
+export function focusPlotReference(container: HTMLElement, ref: ReferenceSnapshot, markdown: string): boolean {
+  const current = notePlots(markdown).find(token => token.data?.id === ref.plotId)
+  if (!current?.data || plotContent(current.data) !== ref.plotContent) return false
+  const element = [...container.querySelectorAll<HTMLElement>('[data-note-plot]')]
+    .find(item => item.dataset.notePlot === ref.plotId)
+  if (!element) return false
+  element.focus({ preventScroll: true })
+  scrollInNote(container, element.getBoundingClientRect())
+  return true
+}
+
+export async function focusNotePosition(container: HTMLElement, ref: ReferenceSnapshot, markdown: string, signal: AbortSignal) {
+  if (!ref.anchor) return false
+  const location = await locateNoteAnchor(markdown, ref.anchor)
+  if (!location || signal.aborted) return false
+  const body = container.querySelector<HTMLElement>('.note-rich-body')
+  if (!body) return false
+  if (location.gapIndex !== undefined) {
+    const bounds = body.getBoundingClientRect()
+    const blocks = Array.from(body.children)
+    const previous = blocks.slice(0, location.gapIndex).reverse().map(block => block.getBoundingClientRect()).find(rect => rect.height)
+    const next = blocks.slice(location.gapIndex).map(block => block.getBoundingClientRect()).find(rect => rect.height)
+    const top = ((previous?.bottom ?? bounds.top) + (next?.top ?? bounds.bottom)) / 2
+    body.tabIndex = -1
+    body.focus({ preventScroll: true })
+    scrollInNote(container, { top, bottom: top + 1 })
+    return true
+  }
+  const index = location.block ? noteBlocks(markdown).blocks.findIndex(block => block.start === location.block?.start) : -1
+  const target = index < 0 ? body : body?.children.item(index)
+  if (!(target instanceof HTMLElement)) return false
+  target.tabIndex = -1
+  target.focus({ preventScroll: true })
+  const caret = projectedCaret(body, target, location.inline)?.getBoundingClientRect()
+  scrollInNote(container, caret?.height ? caret : target.getBoundingClientRect())
   return true
 }

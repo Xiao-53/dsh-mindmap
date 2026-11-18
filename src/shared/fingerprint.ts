@@ -18,3 +18,9 @@ export async function fingerprint(files: ReadFile[]): Promise<string> {
     ),
   )
 }
+
+// 跨 UI/Host 的请求摘要不依赖对象字段的插入顺序。
+export function canonicalJson(input: unknown): string {
+  return JSON.stringify(input, (_key, value) => value && typeof value === 'object' && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value).sort(([a],[b]) => a < b ? -1 : a > b ? 1 : 0)) : value) ?? 'null'
+}

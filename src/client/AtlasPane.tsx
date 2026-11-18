@@ -1,3 +1,7 @@
+import type { NoteAnchor } from '../shared/note-position.ts'
+import { editSession, type EditSession } from './edit-session.ts'
+import { relayoutView } from '../shared/layout.ts'
+import type { LayoutMode, ViewLayout } from '../shared/map-types.ts'
 import {
   useCallback,
   useEffect,
@@ -53,6 +57,8 @@ import { NodeMenu } from './components/NodeMenu.tsx'
 import { MapLibrary } from './components/MapLibrary.tsx'
 import { readableNote } from './copy-note.ts'
 import { downloadHtml } from './export-html.ts'
+import { notePlots } from '../shared/note-markdown.ts'
+import { plotContent, plotText, type PlotData } from '../shared/note-plot.ts'
 
 export type AtlasPaneProps = PropsRuntime<'sidebar.right.pane.tab'> &
   PropsStore<ReturnType<typeof createReadingStore>> & {
@@ -207,22 +213,25 @@ type LayoutDraft = { layout: MapLayout; base: MapSnapshot; revision: number }
 // 会话内保留，覆盖切图、目录、页签卸载和未完成保存；不写入内容或分享。
 const retainedLayouts = new Map<string, LayoutDraft>()
 const layoutDraftKey = (session: string, workspace: string, map: string) => JSON.stringify([session, workspace, map])
-export function ReadingPane(props: AtlasPaneProps & {
+export type ReadingPaneProps = Pick<AtlasPaneProps, 'actions' | 'useStore'> & {
+  sessionId: string
+  useTabInfo: () => { tab: { visible: boolean; navigation: { revision: number; params?: unknown }; actions: { close: () => void } } }
   onLibrary: (workspaceKey?: string) => void
   onMap?: (id: string) => void
   onPageHistory?: (direction: HistoryDirection, workspaceKey: string) => void
   onViewNavigation?: () => void
-  offline?: boolean
   restoreReading?: boolean
-}) {
+} & (
+  | ({ offline?: false; host: HostAdapter } & Pick<AtlasPaneProps, 'inputActions' | 'insertReference'>)
+  | { offline: true; host: Pick<HostAdapter, 'read' | 'list'> }
+)
+export function ReadingPane(props: ReadingPaneProps) {
   const {
     host,
     sessionId,
     actions,
     useStore,
     useTabInfo,
-    inputActions,
-    insertReference,
   } = props
   const { tab } = useTabInfo()
   const stored = useStore((s) => s)
@@ -233,15 +242,23 @@ export function ReadingPane(props: AtlasPaneProps & {
   })
   const [snapshot, setSnapshot] = useState<MapSnapshot>()
   const [draft, setDraft] = useState<LayoutDraft>()
+  const editor = useRef<EditSession>()
+  const unsubscribeEditor = useRef<()=>void>()
+  const [,renderEditor] = useState(0)
+  const dragOrigin = useRef<ViewLayout>()
+  const dragCommitted = useRef(false)
   const draftRef = useRef(draft)
   const layoutRef = useRef<MapLayout>()
-  const saving = useRef(false)
   const [isSaving,setIsSaving] = useState(false)
   const [nodeDragging,setNodeDragging] = useState(false)
-  const saveAgain = useRef(false)
   const [error, setError] = useState('')
   const [watchError, setWatchError] = useState('')
   const [saveError, setSaveError] = useState('')
+  const [leaveAction,setLeaveAction]=useState<()=>void>()
+  const [leavingFormula,setLeavingFormula]=useState(false)
+  const [leaving,setLeaving]=useState(false)
+  const leaveCancel=useRef<HTMLButtonElement>(null)
+  useEffect(()=>{if(leaveAction)leaveCancel.current?.focus()},[leaveAction])
   const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState('')
   const [noticeFading, setNoticeFading] = useState(false)
@@ -275,7 +292,6 @@ export function ReadingPane(props: AtlasPaneProps & {
   }
   const refreshRef = useRef<() => Promise<void>>(async () => {})
   const saveRef = useRef<() => Promise<void>>(async () => {})
-  const saveAttempt = useRef('')
   const processedReference = useRef('')
   const skipInitialReference = useRef(props.restoreReading)
   const navigationIntent = useRef<{
@@ -316,6 +332,8 @@ export function ReadingPane(props: AtlasPaneProps & {
     lifetime.current = new AbortController()
     navigation.current = new NavigationTransition()
     return () => {
+      unsubscribeEditor.current?.()
+      editor.current?.detach()
       lifetime.current.abort()
       loader.current.cancel()
       navigation.current.dispose()
@@ -373,18 +391,19 @@ export function ReadingPane(props: AtlasPaneProps & {
         setLoading(false)
         return
       }
-      const retained = retainedLayouts.get(layoutDraftKey(sessionId, result.snapshot.workspaceKey, currentId))
-      if (retained) {
-        draftRef.current = retained
-        setDraft(retained)
-        setSaveError('')
-      }
-      setSnapshot((old) =>
-        old?.fingerprint === result.snapshot!.fingerprint &&
-        old.workspaceKey === result.snapshot!.workspaceKey
-          ? old
-          : result.snapshot,
-      )
+      if (!props.offline) {
+        const active=editSession(sessionId,props.host,result.snapshot)
+        if(editor.current!==active){
+          unsubscribeEditor.current?.();editor.current?.detach();editor.current=active
+          unsubscribeEditor.current=active.subscribe(()=>{
+            if(lifetime.current.signal.aborted || latest.current.mapId!==active.working.map.id)return
+            setSnapshot(active.working);setIsSaving(active.status==='saving');setSaveError(['failed','conflict','recovery_required','readonly'].includes(active.status)?active.message:'');if(active.message&&!['failed','conflict','recovery_required','readonly'].includes(active.status))notify(active.message)
+            renderEditor(n=>n+1)
+          })
+        }
+        setSnapshot(active.working)
+        setSaveError(['failed','conflict','recovery_required','readonly'].includes(active.status)?active.message:'');if(active.message&&!['failed','conflict','recovery_required','readonly'].includes(active.status))notify(active.message)
+      } else setSnapshot(result.snapshot)
       const currentKey = readingKey(result.snapshot.workspaceKey, currentId)
       const state = latest.current.reading
       if (state && state.mapId === currentId && state.workspaceKey === result.snapshot.workspaceKey) {
@@ -409,7 +428,6 @@ export function ReadingPane(props: AtlasPaneProps & {
     setSaveError('')
     setHeights({})
     setMeasured('')
-    saveAttempt.current = ''
     setSearchOpen(false)
     setNodeMenu(undefined)
     updatePhase('idle')
@@ -423,9 +441,9 @@ export function ReadingPane(props: AtlasPaneProps & {
     ? snapshot.files.map((f) => f.path).join('\n')
     : ''
   useEffect(() => {
-    if (!snapshot) return
+    if (!snapshot || props.offline) return
     setWatchError('')
-    return host.watch(
+    return props.host.watch(
       snapshot,
       () => {
         void refreshRef.current()
@@ -455,7 +473,7 @@ export function ReadingPane(props: AtlasPaneProps & {
       alive = false
       observer.disconnect()
     }
-  }, [snapshot?.fingerprint])
+  }, [snapshot?.fingerprint, snapshot?.map])
   const layout = useMemo(
     () =>
       draft?.layout ?? (snapshot ? fillLayout(snapshot.map, snapshot.layout, heights) : undefined),
@@ -469,83 +487,71 @@ export function ReadingPane(props: AtlasPaneProps & {
       layout: { ...layoutRef.current, views: layoutRef.current.views.map(v => v.viewId !== reading.viewId ? v : {
         ...v, nodes: v.nodes.map(n => n.nodeId === id ? { ...n, x, y, manual: true } : n),
       }) } }
-    retainedLayouts.set(layoutDraftKey(sessionId, next.base.workspaceKey, next.base.map.id), next)
+    if (!props.offline) retainedLayouts.set(layoutDraftKey(sessionId, next.base.workspaceKey, next.base.map.id), next)
     draftRef.current = next
     layoutRef.current = next.layout
     // 拖动期间仅更新工作副本引用，不重绘阅读页；画布负责实时预览。
   }
   const saveLayoutNow = async () => {
-    if (saving.current) { saveAgain.current = true; return }
-    const edit = draftRef.current
-    const current = edit?.base ?? latest.current.snapshot
-    const candidate = edit?.layout ?? layoutRef.current
-    if (!current || !candidate) return
-    saving.current = true
-    setIsSaving(true)
-    try {
-      const saved = await host.saveLayout(current, candidate, lifetime.current.signal, !!edit)
-      const retainedKey = layoutDraftKey(sessionId, current.workspaceKey, current.map.id)
-      const retained = retainedLayouts.get(retainedKey)
-      if (edit && retained?.revision === edit.revision) retainedLayouts.delete(retainedKey)
-      else if (retained) retainedLayouts.set(retainedKey, { ...retained, base: saved })
-      if (
-        latest.current.mapId === current.map.id &&
-        !lifetime.current.signal.aborted
-      ) {
-        setSaveError('')
-        setSnapshot(saved)
-        if (edit && draftRef.current?.revision === edit.revision) {
-          draftRef.current = undefined
-          setDraft(undefined)
-        } else if (draftRef.current) {
-          const next = { ...draftRef.current, base: saved }
-          retainedLayouts.set(retainedKey, next)
-          draftRef.current = next
-          setDraft(next)
-        }
-      }
-    } catch (e) {
-      if (
-        latest.current.mapId === current.map.id &&
-        !lifetime.current.signal.aborted
-      )
-        setSaveError(
-          `布局尚未保存，当前内存位置仍可阅读：${e instanceof Error ? e.message : String(e)}`,
-        )
-    } finally {
-      saving.current = false
-      if (!lifetime.current.signal.aborted) setIsSaving(false)
-      if (saveAgain.current && !lifetime.current.signal.aborted) {
-        saveAgain.current = false
-        void saveRef.current()
-      }
+    const active=editor.current
+    if(!active)return
+    if(draftRef.current && latest.current.reading){
+      const target=draftRef.current.layout.views.find(v=>v.viewId===latest.current.reading!.viewId)
+      const before=dragOrigin.current
+      const samePosition=target&&before&&target.nodes.every(n=>{const old=before.nodes.find(b=>b.nodeId===n.nodeId);return old?.x===n.x&&old?.y===n.y})
+      if(target&&!samePosition)active.setLayout({...target,mode:target.mode??'vertical'},before,'move')
+      retainedLayouts.delete(layoutDraftKey(sessionId,active.baseline.workspaceKey,active.baseline.map.id))
+      draftRef.current=undefined;setDraft(undefined)
     }
+    await active.save(true)
   }
   saveRef.current = saveLayoutNow
-  const discardLayout = () => {
-    if (saving.current) return
-    const edit = draftRef.current
-    if (edit) retainedLayouts.delete(layoutDraftKey(sessionId, edit.base.workspaceKey, edit.base.map.id))
-    draftRef.current = undefined
-    setDraft(undefined)
-    setSaveError('')
-    saveAttempt.current = ''
-    void load()
+  const discardChanges = async () => {
+    const active=editor.current
+    if(!active)return true
+    try {
+      const done=await active.discardLatest()
+      if(done){draftRef.current=undefined;setDraft(undefined);setSaveError('')}
+      return done
+    }catch(e){setSaveError(String(e));return false}
   }
-  useEffect(() => {
-    if (
-      !snapshot ||
-      draft ||
-      !layout ||
-      measured !== snapshot.fingerprint ||
-      JSON.stringify(layout) === JSON.stringify(snapshot.layout)
-    )
+  const discardLayout = () => { void discardChanges() }
+  const guard = async (action:()=>void) => {
+    const active=editor.current
+    if(!active){action();return}
+    if(active.hasPendingFormula){
+      setLeavingFormula(true)
+      setLeaveAction(()=>action)
       return
-    const attempt = `${snapshot.fingerprint}\n${JSON.stringify(layout)}`
-    if (saveAttempt.current === attempt) return
-    saveAttempt.current = attempt
-    void saveRef.current()
-  }, [snapshot, layout, measured, draft])
+    }
+    if(active.formulaDraft)active.setFormulaDraft(undefined)
+    setLeavingFormula(false)
+    const allowed=await active.flush()
+    if(lifetime.current.signal.aborted||editor.current!==active)return
+    if(allowed){action();return}
+    setSaveError(active.message||'修改尚未保存，请重试或明确放弃后离开')
+    setLeaveAction(()=>action)
+  }
+  const changeLayout = (mode: LayoutMode, reset = false) => {
+    const current = layoutRef.current
+    if (!snapshot || !reading || !current || measured !== snapshot.fingerprint || navigationBusy.current) return
+    const old = current.views.find(view => view.viewId === reading.viewId)
+    if (!reset && (old?.mode ?? 'vertical') === mode) return
+    const active = editor.current
+    if (!props.offline && !active?.finishInput()) return
+    try {
+      const next = relayoutView(active?.working.map ?? snapshot.map, reading.viewId, mode, heights)
+      if (props.offline) {
+        setDraft(previous => ({
+          base: snapshot,
+          revision: (previous?.revision ?? 0) + 1,
+          layout: { ...current, views: current.views.map(view => view.viewId === next.viewId ? next : view) },
+        }))
+      } else active?.setLayout(next, old)
+    } catch (error) {
+      notify(String(error))
+    }
+  }
   const navigate = (viewId: string, nodeId?: string, historyDirection?: HistoryDirection) => {
     const current = latest.current
     if (
@@ -633,11 +639,10 @@ export function ReadingPane(props: AtlasPaneProps & {
     // 动画完成前忽略重复侧键。
     if (navigationBusy.current) return
     const target = historyReading(current.reading, current.snapshot.map, direction)
-    if (target) navigate(target.viewId, target.selectedNodeId, direction)
+    if (target) void guard(()=>navigate(target.viewId,target.selectedNodeId,direction))
     else if (!props.offline) {
       setReference(undefined)
-      if (props.onPageHistory) props.onPageHistory(direction, current.snapshot.workspaceKey)
-      else if (direction === 'back') props.onLibrary(current.snapshot.workspaceKey)
+      void guard(()=>{if(props.onPageHistory)props.onPageHistory(direction,current.snapshot!.workspaceKey);else if(direction==='back')props.onLibrary(current.snapshot!.workspaceKey)})
     }
   }
   useEffect(() => {
@@ -646,7 +651,7 @@ export function ReadingPane(props: AtlasPaneProps & {
     if (processedReference.current === token) return
     processedReference.current = token
     const target = resolveReference(reference, snapshot)
-    if (target.nodeId && target.viewId) navigate(target.viewId, target.nodeId)
+    if (target.nodeId && target.viewId) void guard(()=>navigate(target.viewId!,target.nodeId))
     if (target.message) setNotice(target.message)
   }, [snapshot, reference, tab.navigation.revision])
   const openNote = (id: string) => {
@@ -680,64 +685,77 @@ export function ReadingPane(props: AtlasPaneProps & {
       )
     }
   }
-  const openSearch = () => {
+  const openSearch = () => { void guard(()=>{
     focus.current = document.activeElement as HTMLElement
     setSearchOpen(true)
-  }
+  }) }
   const chooseMap = (id: string) => {
     setReference(undefined)
-    if (props.onMap) props.onMap(id)
-    else actions.selectMap(id)
+    void guard(()=>{if(props.onMap)props.onMap(id);else actions.selectMap(id)})
   }
   const closeSearch = () => {
     setSearchOpen(false)
     restoreFocus(focus.current, root.current)
   }
-  const insert = (selected: SelectionSnapshot, nodeId = reading?.selectedNodeId, kind: 'node' | 'selection' = 'selection') => {
-    if (!snapshot || !nodeId || !reading) return
-    const node = snapshot.map.nodes.find(
+  const insert = (selected: SelectionSnapshot, nodeId = reading?.selectedNodeId, kind: 'node' | 'selection' | 'plot' | 'note-position' = 'selection', plot?: PlotData, anchor?: NoteAnchor) => {
+    if (props.offline || !snapshot || !nodeId || !reading) return
+    const saved = kind === 'plot' || kind === 'note-position' ? editor.current?.baseline ?? snapshot : snapshot
+    const node = saved.map.nodes.find(
       (n) => n.id === nodeId,
-    )!
+    )
+    if (!node || (anchor && (anchor.mapId !== saved.map.id || anchor.nodeId !== nodeId))) return
+    const content = plot && plotContent(plot)
+    if (kind === 'plot') {
+      const actual = notePlots(saved.notes[nodeId] ?? '').find(token => token.data?.id === plot?.id)
+      if (saved.map.id !== snapshot.map.id || saved.workspaceKey !== snapshot.workspaceKey ||
+        !actual?.data || plotContent(actual.data) !== content) {
+        notify('已保存的笔记中找不到此图块，请重新打开笔记后再引用。')
+        return
+      }
+    }
     const snapshotRef: ReferenceSnapshot = {
       version: 1,
       kind,
       ...selected,
-      mapId: snapshot.map.id,
+      mapId: saved.map.id,
       nodeId: node.id,
       originViewId: reading.viewId,
-      fingerprint: snapshot.fingerprint,
-      noteDigest: referenceContentDigest(snapshot, node),
-      mapTitle: snapshot.map.title,
+      fingerprint: saved.fingerprint,
+      noteDigest: referenceContentDigest(saved, node),
+      mapTitle: saved.map.title,
       nodeTitle: node.title,
       sessionId,
-      workspaceKey: snapshot.workspaceKey,
+      workspaceKey: saved.workspaceKey,
+      ...(plot && { plotId: plot.id, plotContent: content }),
+      ...(anchor && { anchor }),
       resourceAddress: fileAddressFor(
         sessionId,
         undefined,
-        `dsh-knowledge-maps/${snapshot.map.id}/map.json`,
+        `dsh-knowledge-maps/${saved.map.id}/map.json`,
       ),
     }
     const next: PendingInsertion = {
       snapshot: snapshotRef,
       sessionId,
-      span: inputActions.captureInsertion(),
+      span: props.inputActions.captureInsertion(),
     }
     const outcome = insertPending(next, {
       sessionId,
       alive: !lifetime.current.signal.aborted && tab.visible,
-      insert: insertReference,
+      insert: props.insertReference,
     })
     actions.setPending(key, outcome.pending)
     notify(outcome.message)
   }
   const retry = () => {
-    if (!pending) return
+    if (props.offline || !pending || !snapshot || pending.snapshot.workspaceKey !== snapshot.workspaceKey ||
+      pending.snapshot.mapId !== snapshot.map.id) return
     const outcome = insertPending(
-      { ...pending, span: inputActions.captureInsertion() },
+      { ...pending, span: props.inputActions.captureInsertion() },
       {
         sessionId,
         alive: !lifetime.current.signal.aborted && tab.visible,
-        insert: insertReference,
+        insert: props.insertReference,
       },
     )
     actions.setPending(key, outcome.pending)
@@ -784,6 +802,18 @@ export function ReadingPane(props: AtlasPaneProps & {
           setNodeMenu(undefined)
       }}
       onKeyDown={(e) => {
+        if(!props.offline && e.ctrlKey && !e.altKey && !e.shiftKey && !leaveAction && ['z','y'].includes(e.key.toLowerCase()) && !e.repeat && !e.nativeEvent.isComposing && !(e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"],[role="dialog"]')){
+          const redo=e.key.toLowerCase()==='y'
+          const travel=()=>{
+            const entry=editor.current?.travel(redo)
+            if(entry)navigate(entry.viewId,entry.after.kind==='details'?entry.after.nodeId:undefined)
+            return !!entry
+          }
+          if(editor.current?.hasPendingFormula){
+            e.preventDefault();e.stopPropagation();void guard(travel)
+          } else if(travel()){e.preventDefault();e.stopPropagation()}
+          return
+        }
         if (
           (e.ctrlKey || e.metaKey) &&
           ['f', 'k'].includes(e.key.toLowerCase()) &&
@@ -805,7 +835,7 @@ export function ReadingPane(props: AtlasPaneProps & {
           } else if (node) {
             e.preventDefault()
             e.stopPropagation()
-            closeNote()
+            void guard(closeNote)
           }
         }
       }}
@@ -813,22 +843,28 @@ export function ReadingPane(props: AtlasPaneProps & {
       {snapshot && view && reading ? (
         <MapHeader
           map={snapshot.map}
-          library={() => props.onLibrary(snapshot?.workspaceKey)}
+          library={() => {void guard(()=>props.onLibrary(snapshot?.workspaceKey))}}
+          layoutMode={viewLayout?.mode??'vertical'}
+          onLayout={mode => changeLayout(mode)}
+          onReset={props.offline?undefined:()=>changeLayout('vertical',true)}
           offline={props.offline}
           saveStatus={props.offline ? undefined : {
-            state: isSaving ? 'saving' : saveError ? 'error' : nodeDragging || draft || (layout && JSON.stringify(layout) !== JSON.stringify(snapshot.layout)) ? 'unsaved' : 'saved',
+            state: isSaving ? 'saving' : saveError ? 'error' : nodeDragging || draft || editor.current?.dirty ? 'unsaved' : 'saved',
             detail: isSaving ? undefined : saveError || undefined,
             save: () => { void saveRef.current() },
             discard: discardLayout,
-            canDiscard: !!draft || !!saveError,
+            canDiscard: !!editor.current?.dirty || !!saveError,
           }}
           exportMap={props.offline ? undefined : () => {
-            if (layout) { downloadHtml(snapshot, layout, reading.viewId); notify('已导出可离线阅读的 HTML。') }
+            const saved = editor.current?.baseline ?? snapshot
+            if (saved.writable === false) { notify('资源不完整，不能导出完整地图'); return }
+            downloadHtml(saved, fillLayout(saved.map, saved.layout, {}), reading.viewId)
+            notify('已导出已保存版本的离线 HTML。')
           }}
           view={view}
           maps={listing.maps.filter(m => !listing.library?.data.deletedMapIds?.includes(m.id))}
           selectMap={chooseMap}
-          navigate={navigate}
+          navigate={(id)=>{void guard(()=>navigate(id))}}
           search={openSearch}
           refresh={() => {
             void load()
@@ -838,7 +874,7 @@ export function ReadingPane(props: AtlasPaneProps & {
               .catch((e) => setError(String(e)))
           }}
         />
-      ) : (
+      ) : props.offline ? null : (
         <header className="map-header">
           <div className="head-top">
             <h1>思维导图</h1>
@@ -867,7 +903,7 @@ export function ReadingPane(props: AtlasPaneProps & {
             <button
               className="btn"
               aria-label="关闭地图页签"
-              onClick={tab.actions.close}
+              onClick={()=>{void guard(tab.actions.close)}}
             >
               ×
             </button>
@@ -888,6 +924,28 @@ export function ReadingPane(props: AtlasPaneProps & {
           )}
         </header>
       )}
+      {snapshot?.diagnostics?.map(d=><p className="status-region" key={d.path}>{d.path}：{d.message}</p>)}
+      {!props.offline && leaveAction && <div className="editor-exit-backdrop"><section className="editor-exit-dialog" role="dialog" aria-modal="true" aria-label="处理未保存修改" onKeyDown={e=>{
+        if(e.key==='Escape'&&!leaving){e.preventDefault();e.stopPropagation();setLeaveAction(undefined)}
+        if(e.key==='Tab'){const buttons=Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));const i=buttons.indexOf(document.activeElement as HTMLButtonElement);e.preventDefault();buttons[(i+(e.shiftKey?-1:1)+buttons.length)%buttons.length]?.focus()}
+      }}>
+        {leavingFormula?<><h3>公式草稿尚未应用</h3><p>你可以返回编辑，或放弃这条公式草稿后继续。</p>
+          <div className="editor-actions">
+            <button className="btn" onClick={()=>{
+              editor.current?.setFormulaDraft(undefined)
+              setLeaveAction(undefined)
+              void guard(leaveAction)
+            }}>放弃公式草稿并继续</button>
+            <button className="btn" ref={leaveCancel} onClick={()=>{setLeaveAction(undefined);root.current?.focus()}}>继续编辑公式</button>
+          </div>
+        </>:<><h3>修改尚未保存</h3><p>{saveError||'当前副本已保留。'}</p>
+        <div className="editor-actions">
+          <button className="btn" disabled={leaving} onClick={()=>{setLeaving(true);void (async()=>{try{if(await editor.current?.flush()){setLeaveAction(undefined);leaveAction()}}finally{setLeaving(false)}})()}}>重试保存并继续</button>
+          <button className="btn" disabled={leaving} onClick={()=>{setLeaving(true);void (async()=>{try{if(await discardChanges()){setLeaveAction(undefined);leaveAction()}}finally{setLeaving(false)}})()}}>放弃修改并继续</button>
+          <button className="btn" ref={leaveCancel} disabled={leaving} onClick={()=>{setLeaveAction(undefined);root.current?.focus()}}>保留并取消离开</button>
+        </div>
+        </>}
+      </section></div>}
       {(error || watchError) && (
         <div className="status-region" role="status">
           {error && (
@@ -926,11 +984,40 @@ export function ReadingPane(props: AtlasPaneProps & {
               heights={heights}
               selected={reading.selectedNodeId}
               locked={phase !== 'idle'}
-              onMove={moveNode}
-              onCommit={() => { setDraft(draftRef.current); void saveRef.current() }}
-              onDragStart={() => { setNodeDragging(true); setNodeMenu(undefined); setSearchOpen(false) }}
-              onDragEnd={() => { setNodeDragging(false); setDraft(draftRef.current) }}
-              onMenu={(id, x, y) => {
+              onMove={props.offline || !['readonly','conflict','recovery_required'].includes(editor.current?.status ?? '') ? moveNode : undefined}
+              onCommit={() => {
+                dragCommitted.current = true
+                if (props.offline) {
+                  if (draftRef.current) setDraft(draftRef.current)
+                  return
+                }
+                setDraft(draftRef.current)
+                void saveRef.current()
+              }}
+              onDragStart={() => {
+                dragCommitted.current = false
+                if (props.offline) return
+                editor.current?.finishInput()
+                dragOrigin.current = structuredClone(viewLayout)
+                setNodeDragging(true)
+                setNodeMenu(undefined)
+                setSearchOpen(false)
+              }}
+              onDragEnd={() => {
+                if (props.offline) {
+                  draftRef.current = undefined
+                  if (!dragCommitted.current) layoutRef.current = layout
+                } else {
+                  setNodeDragging(false)
+                  if (!dragCommitted.current) {
+                    draftRef.current = undefined
+                    if (editor.current) retainedLayouts.delete(layoutDraftKey(sessionId, editor.current.baseline.workspaceKey, editor.current.baseline.map.id))
+                  }
+                  setDraft(draftRef.current)
+                }
+                root.current?.focus({ preventScroll: true })
+              }}
+              onMenu={props.offline ? undefined : (id, x, y) => {
                 const bounds = root.current
                   ?.querySelector('.content-area')
                   ?.getBoundingClientRect()
@@ -956,7 +1043,7 @@ export function ReadingPane(props: AtlasPaneProps & {
                   ),
                 })
               }}
-              onNote={openNote}
+              onNote={id=>{void guard(()=>openNote(id))}}
               onOpen={(id) => {
                 const n = snapshot.map.nodes.find((n) => n.id === id)!
                 const dest = nodeDestination(n, view.id)
@@ -964,8 +1051,7 @@ export function ReadingPane(props: AtlasPaneProps & {
                   root.current?.querySelector<HTMLElement>(
                     `[data-node="${id}"]`,
                   ) ?? null
-                if (dest) navigate(dest)
-                else openNote(id)
+                void guard(()=>{if (dest) navigate(dest);else openNote(id)})
               }}
             />
           </MapViewport>
@@ -998,6 +1084,8 @@ export function ReadingPane(props: AtlasPaneProps & {
           <NoteInspector
             key={`${view?.id}/${node.id}`}
             snapshot={snapshot}
+            editSession={props.offline?undefined:editor.current}
+            viewId={view?.id}
             node={node}
             width={inspectorWidth}
             onWidth={setInspectorWidth}
@@ -1010,10 +1098,15 @@ export function ReadingPane(props: AtlasPaneProps & {
                 actions.setReading(key, next)
               }
             }}
-            onClose={closeNote}
-            onInsert={selection => insert(selection)}
+            onClose={()=>{void guard(closeNote)}}
+            onFinishEdit={finish=>{void guard(finish)}}
+            onInsert={props.offline ? undefined : selection => insert(selection)}
+            onPlotReference={props.offline ? undefined : plot =>
+              insert({ text: plotText(plot), before: '', after: '' }, node.id, 'plot', plot)}
+            onPositionReference={props.offline ? undefined : (anchor, text) =>
+              insert({ text, before: '', after: '' }, node.id, 'note-position', undefined, anchor)}
             offline={props.offline}
-            onRetry={pending ? retry : undefined}
+            onRetry={!props.offline && pending ? retry : undefined}
             notify={notify}
             reference={reference?.nodeId === node.id ? reference : undefined}
           />
@@ -1022,7 +1115,7 @@ export function ReadingPane(props: AtlasPaneProps & {
           <SearchOverlay
             snapshot={snapshot}
             close={closeSearch}
-            choose={(result) => navigate(snapshot.map.nodes.find(n => n.id === result.nodeId)?.childViewId ?? result.viewId, result.nodeId)}
+            choose={(result) => {void guard(()=>navigate(snapshot.map.nodes.find(n => n.id === result.nodeId)?.childViewId ?? result.viewId, result.nodeId))}}
           />
         )}
         {!props.offline && nodeMenu && menuNode && reading && (

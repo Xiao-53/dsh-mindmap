@@ -6,7 +6,7 @@ export interface LayoutSaveStatus {
   discard: () => void
   canDiscard: boolean
 }
-const labels = { saved: '布局已保存', saving: '正在保存布局', unsaved: '布局未保存', error: '布局保存失败' }
+const labels = { saved: '已保存', saving: '正在保存', unsaved: '未保存', error: '保存未完成' }
 export function SaveStatus({ status }: { status: LayoutSaveStatus }) {
   const [open,setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
@@ -25,11 +25,11 @@ export function SaveStatus({ status }: { status: LayoutSaveStatus }) {
         {status.state === 'saved' ? <><circle cx="12" cy="12" r="8"/><path d="m8 12 2.5 2.5L16 9"/></> : status.state === 'saving' ? <path className="save-spinner" d="M20 12a8 8 0 1 1-8-8"/> : status.state === 'error' ? <><path d="m12 3 10 18H2zM12 9v5"/><path d="M12 17h.01"/></> : <><path d="M5 3h12l4 4v14H3V3zM7 3v6h10V3M7 21v-8h10v8"/><circle cx="18" cy="6" r="2.4" fill="currentColor" stroke="none"/></>}
       </svg>
     </button>
-    {open && <div className="layout-save-popover" role="dialog" aria-label="布局保存状态">
+    {open && <div className="layout-save-popover" role="dialog" aria-label="保存状态">
       <strong>{labels[status.state]}</strong>
-      <p>{status.detail || (status.state === 'saved' ? '当前布局已保存。' : status.state === 'saving' ? '保存完成后状态会自动更新。' : '位置已保留在本会话，可保存或放弃。')}</p>
+      <p>{status.detail || (status.state === 'saved' ? '当前已保存。' : status.state === 'saving' ? '保存完成后状态会自动更新。' : '修改已保留在本会话，可重试保存或放弃。')}</p>
       {status.state !== 'saved' && <div className="layout-save-actions">
-        <button disabled={status.state === 'saving'} onClick={status.save}>{status.state === 'error' ? '重试保存' : '保存布局'}</button>
+        <button disabled={status.state === 'saving'} onClick={status.save}>{status.state === 'error' ? '重试保存' : '保存修改'}</button>
         {status.canDiscard && <button disabled={status.state === 'saving'} onClick={() => { status.discard(); setOpen(false) }}>放弃并重载</button>}
       </div>}
     </div>}

@@ -1,4 +1,6 @@
+import { closeEditSessions, disposeEditSessions } from './edit-session.ts'
 import type { Context } from '@deepseek-ai/cordis'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -54,10 +56,13 @@ export function createReadingStore() {
   })
 }
 export function registerSidebar(ctx: Context): void {
+  ctx.effect(() => () => disposeEditSessions())
+  ctx.effect(() => ctx.sidebarRight.registerCloseHandler(ATLAS_KIND, sessionId => closeEditSessions(sessionId)))
   ctx.effect(() =>
     ctx.sidebarRightTabs.register({
       id: ATLAS_ID,
       kind: ATLAS_KIND,
+      keepMounted: true,
       title: () => '思维导图',
       guide: [
         {
@@ -77,13 +82,15 @@ export function registerSidebar(ctx: Context): void {
         key: ATLAS_ID,
         store,
         inject: (sessionId) => {
-          const binding = ctx.sessions.binding(sessionId)
+          // 客户端和服务端共享 Context 声明，此入口由客户端 Session 服务提供。
+          const sessions = ctx.sessions as unknown as Pick<ISessions, 'binding'>
+          const binding = sessions.binding(sessionId)
           return {
             host: createHostAdapter(ctx, sessionId),
             insertReference: (ref: ReferenceInsert, span: TokenSpan) => {
               if (
                 !binding ||
-                ctx.sessions.binding(sessionId) !== binding ||
+                sessions.binding(sessionId) !== binding ||
                 ctx.sidebarRight.mounted.getSnapshot() !== sessionId
               )
                 return false
@@ -92,7 +99,7 @@ export function registerSidebar(ctx: Context): void {
                 .insertReference(ref, span)
             },
             insertText: (text: string, span: TokenSpan) => {
-              if (!binding || ctx.sessions.binding(sessionId) !== binding || ctx.sidebarRight.mounted.getSnapshot() !== sessionId) return false
+              if (!binding || sessions.binding(sessionId) !== binding || ctx.sidebarRight.mounted.getSnapshot() !== sessionId) return false
               return binding.ctx.bail('slash/input-insert-text', { text, span }) === true
             },
           }

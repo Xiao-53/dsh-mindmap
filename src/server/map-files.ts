@@ -1,9 +1,11 @@
+import { validateImage, imageUrl } from '../shared/image-resource.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { WorkspaceFileScope } from '@deepseek-ai/dsh-api-workspace-files'
 import type { FsTarget, FsVersion } from '@deepseek-ai/dsh-fs'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import { posix } from 'node:path'
-import { Lexer, walkTokens } from 'marked'
+import { walkTokens } from 'marked'
+import { lexNote } from '../shared/note-markdown.ts'
 import { digest, fingerprint } from '../shared/fingerprint.ts'
 import { validateMap } from '../shared/validate-map.ts'
 import { validateLayout } from '../shared/validate-layout.ts'
@@ -292,7 +294,9 @@ async function listedPlaceholder(port: MapFilePort, id: string) {
 export async function readSnapshot(
   port: MapFilePort,
   mapId: string,
+  allowResourceErrors = false,
 ): Promise<MapSnapshot> {
+  const resourceErrors: import('../shared/map-types.ts').Diagnostic[] = []
   const files: ReadFile[] = []
   const records = new Map<string, FileRecord>()
   async function read(relative: string, assetsOnly = false) {
@@ -363,7 +367,7 @@ export async function readSnapshot(
     const text = decode(record.bytes)
     notes[node.id] = text
     const local = new Set<string>()
-    walkTokens(Lexer.lex(text), (token) => {
+    walkTokens(lexNote(text), (token) => {
       if (
         (token.type === 'image' || token.type === 'link') &&
         'href' in token &&
@@ -380,7 +384,14 @@ export async function readSnapshot(
           'path_outside_map',
           `本地资源必须位于 assets：${href}`,
         )
+      try {
       const asset = await read(relative, true)
+      if (relative.endsWith('.image.json')) {
+        const image = await validateImage(JSON.parse(decode(asset.bytes)))
+        if (relative !== `assets/${image.id}.image.json`) throw new AtlasError('invalid_data','图片身份与路径不符')
+        resources[`${node.id}:${href}`] = imageUrl(image)
+        continue
+      }
       const mime = (
         {
           png: 'image/png',
@@ -399,6 +410,10 @@ export async function readSnapshot(
         )
       resources[`${node.id}:${href}`] =
         `data:${mime};base64,${Buffer.from(asset.bytes).toString('base64')}`
+      } catch(e) {
+        if (!allowResourceErrors || !(missing(e) || ['invalid_data','invalid_image','too_large'].includes(errorCode(e)))) throw e
+        resourceErrors.push({path:`${node.id}:${href}`,code:'resource_unavailable',message:String(e)})
+      }
     }
   }
   // 复读整个实际读集，拒绝混合版本，包含布局缺失这一依赖。
@@ -425,7 +440,9 @@ export async function readSnapshot(
     notes,
     resources,
     files,
-    fingerprint: await fingerprint(files),
+    fingerprint: resourceErrors.length ? '' : await fingerprint(files),
+    writable: !resourceErrors.length,
+    diagnostics: resourceErrors,
     workspaceKey: port.workspaceKey,
   }
 }

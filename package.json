@@ -1,6 +1,6 @@
 {
   "name": "dsh-mindmap",
-  "version": "0.3.12",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
@@ -48,6 +48,8 @@
     "@deepseek-ai/dsh-tools": "0.2.2-rc.3",
     "@deepseek-ai/dsh-typert-protocol": "0.2.2-rc.3",
     "@deepseek-ai/dsh-util-workspace-path": "0.2.2-rc.3",
+    "jsxgraph": "1.14.3",
+    "katex": "0.19.1",
     "marked": "17.0.1",
     "zod": "4.6.6"
   },

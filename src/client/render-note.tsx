@@ -1,6 +1,20 @@
+import { useLayoutEffect, useMemo, useRef } from 'react'
+import { isFormula, type FormulaToken } from '../shared/note-markdown.ts'
+import { formulaElement } from './note-math.ts'
 import type { Token, Tokens } from 'marked'
 import type { ReactNode } from 'react'
 import { noteSections } from '../shared/note-sections.ts'
+import { isPlot, type PlotData } from '../shared/note-plot.ts'
+import { NotePlot } from './components/NotePlot.tsx'
+function Formula({ token }: { token: FormulaToken }) {
+  const host = useRef<HTMLElement | null>(null)
+  useLayoutEffect(() => {
+    if (host.current) host.current.replaceChildren(formulaElement(host.current.ownerDocument, token))
+  }, [token.raw, token.type])
+  return token.type === 'formulaBlock'
+    ? <div ref={element => { host.current = element }}/>
+    : <span ref={element => { host.current = element }}/>
+}
 export function safeHref(href: string): string | undefined {
   return /^(https?:\/\/|mailto:|#)/i.test(href) ? href : undefined
 }
@@ -8,8 +22,11 @@ function renderTokens(
   tokens: Token[],
   nodeId: string,
   resources: Record<string, string>,
+  onPlotReference?: (plot: PlotData) => void,
 ): ReactNode[] {
   return tokens.map((token, key) => {
+    if (isPlot(token)) return <NotePlot key={token.data ? 'plot:' + token.data.id : key} token={token} onReference={onPlotReference}/>
+    if (isFormula(token)) return <Formula key={key} token={token}/>
     const t = token as Token & { tokens?: Token[]; text?: string }
     const inner = t.tokens ? renderTokens(t.tokens, nodeId, resources) : t.text
     switch (t.type) {
@@ -120,21 +137,24 @@ export function RenderNote({
   nodeId,
   resources,
   sectionFilter,
+  onPlotReference,
 }: {
   markdown: string
   nodeId: string
   resources: Record<string, string>
   sectionFilter?: 'intro' | 'body'
+  onPlotReference?: (plot: PlotData) => void
 }) {
+  const sections = useMemo(() => noteSections(markdown), [markdown])
   return (
     <>
-      {noteSections(markdown).filter(section => sectionFilter === 'intro' ? section.title === '简介' : sectionFilter === 'body' ? section.title !== '简介' : true).map((section, i) => (
+      {sections.filter(section => sectionFilter === 'intro' ? section.title === '简介' : sectionFilter === 'body' ? section.title !== '简介' : true).map((section, i) => (
         <section className="detail-section" key={i}>
-          {section.title && sectionFilter !== 'intro' && <h3 className="detail-label">{section.title === '学习提醒' ? '注意事项' : section.title}</h3>}
+          {section.title && sectionFilter !== 'intro' && <h3 className="detail-label">{section.title === '学习提醒' ? '注意事项' : section.titleTokens ? renderTokens(section.titleTokens, nodeId, resources) : section.title}</h3>}
           <div
             className={`detail-body ${section.title.includes('公式') ? 'formula' : section.title.includes('示例') ? 'example-card' : section.title.includes('提醒') ? 'note-card' : ''}`}
           >
-            {renderTokens(section.tokens, nodeId, resources)}
+            {renderTokens(section.tokens, nodeId, resources, onPlotReference)}
           </div>
         </section>
       ))}
