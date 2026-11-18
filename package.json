@@ -1,7 +1,17 @@
 {
-  "name": "dsh-mindmap",
-  "version": "0.4.1",
-  "private": true,
+  "name": "@xiao-53/dsh-mindmap",
+  "version": "0.4.2",
+  "description": "DSH 原生侧栏思维导图，支持 Markdown 笔记、布局保存和离线 HTML 导出。",
+  "license": "MIT",
+  "keywords": ["dsh-plugin"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Xiao-53/dsh-mindmap.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -11,7 +21,9 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "lib",
+    "lib/index.js",
+    "lib/client.js",
+    "lib/typert.js",
     "cordis.yml"
   ],
   "engines": {
@@ -39,7 +51,8 @@
     "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.host.json && tsc -p tsconfig.client.json",
     "test": "node --experimental-strip-types --test tests/shared/*.test.ts tests/integration/*.test.ts",
-    "pack:plugin": "npm run build && npm pack",
+    "prepack": "npm run build",
+    "pack:plugin": "node scripts/pack-release.mjs",
     "pretest": "npm run build && node scripts/build-ui-tests.mjs"
   },
   "dependencies": {
@@ -48,7 +61,6 @@
     "@deepseek-ai/dsh-tools": "0.2.2-rc.3",
     "@deepseek-ai/dsh-typert-protocol": "0.2.2-rc.3",
     "@deepseek-ai/dsh-util-workspace-path": "0.2.2-rc.3",
-    "jsxgraph": "1.14.3",
     "katex": "0.19.1",
     "marked": "17.0.1",
     "zod": "4.6.6"
@@ -92,6 +104,7 @@
     "@types/react-dom": "^18.3.7",
     "esbuild": "^0.27.0",
     "jsdom": "^27.4.0",
+    "jsxgraph": "1.14.3",
     "react": "^18.2.0",
     "react-dom": "^18.3.1",
     "typescript": "^6.0.3"

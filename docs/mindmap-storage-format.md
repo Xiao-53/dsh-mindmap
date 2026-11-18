@@ -154,3 +154,9 @@ library.json在原schemaVersion:1下增加可选字段：deletedMapTitles为mapI
 ## 0.4.0-preview.8 整图编辑与固定分组背景
 
 编辑器可整体移动和删除有效且 ID 唯一的图表，保留围栏定义和旁边原文。保存后的撤销只接受本次编辑作用域中已确认删除的同一围栏。普通画布节点移动保留已有分组矩形，单独保存节点位置，显式排列或重置继续生成当前视图布局。两项沿用现有文件格式和事务。详见 [节点详情契约](../specs/005-unify-note-presentation/contracts/note-detail.md) 和 [分组背景设计](../specs/005-unify-note-presentation/plan.md#画布背景修复与验收)。
+
+## 008 管理页手动排序增量
+
+`library.json` 继续沿用 `schemaVersion: 1`，新增可选字段 `rootMapOrder`（根目录导图 ID 数组）与 `folderMapOrders`（`folderId -> 导图 ID 数组` 映射），分别记录根目录和各文件夹内部的导图展示顺序；文件夹排序直接沿用 `folders` 数组顺序。`folderMapOrders` 的键必须指向已有文件夹，各排序列表内部禁止重复 ID，且同一 `mapId` 不得同时出现在多个排序列表中。
+
+管理页强制单层文件夹（新建及文件夹重排统一写 `parentId: null`，不嵌套文件夹；schema 保留 `parentId` 校验以兼容历史索引）。未收录在排序列表中的新增或还原导图按原目录先后追加至对应层级末尾；删除导图（移入回收站）或永久删除同步从排序列表移除该 ID（保留 `mapFolders` 供还原使用），删除文件夹时将其导图按原文件夹顺序追加至根目录末尾（若已有排序）。详见 [008 数据模型](../specs/008-library-drag-sort/data-model.md)。

@@ -17,6 +17,7 @@ import {
 import { idSchema } from '../shared/validate-map.ts'
 import { layoutSchema } from '../shared/validate-layout.ts'
 import { librarySchema } from '../shared/library.ts'
+import { prunePurgedFromOrders } from '../shared/library-order.ts'
 import { libraryFiles } from './library-files.ts'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-session'
@@ -103,7 +104,9 @@ export class MapService extends TypertRemoteService {
             } catch(e) { failures.push({ id, message: String(e) }); if (signal.aborted) break }
           }
           const purged = new Set([...(current.data.purgedMapIds ?? []), ...deletedIds])
-          const state = deletedIds.length ? await library.save({ ...current.data, purgedMapIds: [...purged],
+          const orders = prunePurgedFromOrders(current.data, purged)
+          const { rootMapOrder: _rootOrder, folderMapOrders: _folderOrders, ...baseLibrary } = current.data
+          const state = deletedIds.length ? await library.save({ ...baseLibrary, ...orders, purgedMapIds: [...purged],
             deletedMapIds: current.data.deletedMapIds?.filter(id => !purged.has(id)),
             purgingMapIds: current.data.purgingMapIds?.filter(id => !purged.has(id)),
             deletedMapTitles: Object.fromEntries(Object.entries(current.data.deletedMapTitles ?? {}).filter(([id]) => !purged.has(id))),

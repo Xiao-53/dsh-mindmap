@@ -1,9 +1,7 @@
 import { build } from 'esbuild'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { dirname, resolve } from 'node:path'
-
-const { name } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+import { dirname, join, resolve } from 'node:path'
 
 const require = createRequire(import.meta.url)
 const plotEntry = require.resolve('jsxgraph')
@@ -51,36 +49,51 @@ const offline = await build({
   loader: { '.css': 'text' },
 })
 
-await build({
-  entryPoints: {
-    index: 'src/index.ts',
-    typert: 'src/typert.ts',
-  },
-  outdir: 'lib',
-  bundle: true,
-  packages: 'external',
-  platform: 'neutral',
-  format: 'esm',
-  target: 'es2023',
-  jsx: 'automatic',
-  loader: { '.css': 'text' },
-})
+export async function buildPlugin(name, outdir = 'lib') {
+  const packageName = JSON.stringify(name)
+  const define = { __DSH_MINDMAP_PACKAGE_NAME__: packageName }
+  await build({
+    entryPoints: {
+      index: 'src/index.ts',
+      typert: 'src/typert.ts',
+    },
+    outdir,
+    bundle: true,
+    packages: 'external',
+    platform: 'neutral',
+    format: 'esm',
+    target: 'es2023',
+    jsx: 'automatic',
+    define,
+    loader: { '.css': 'text' },
+  })
 
-// DSH rc.3 的 /plugins 路由装载闭包工厂，不装载普通 ESM。
-// 依据官方 packages/client/tsdown.client.ts 及 web/src/platform.ts：
-// 只有宿主提供的模块保持 require，其余依赖必须随客户端打包。
-await build({
-  entryPoints: ['src/client/index.tsx'],
-  outfile: 'lib/client.js',
-  bundle: true,
-  platform: 'browser',
-  format: 'cjs',
-  target: 'es2023',
-  jsx: 'automatic',
-  external: ['react', 'react/jsx-runtime', '@deepseek-ai/cordis', '@deepseek-ai/dsh-client-store', 'zod'],
-  plugins: [plotLocal],
-  define: { '__NOTE_MATH_CSS__': JSON.stringify(mathCss), 'process.env.NODE_ENV': '"production"', '__OFFLINE_VIEWER__': JSON.stringify(offline.outputFiles[0].text) },
-  loader: { '.css': 'text' },
-  banner: { js: plotNotice + `window.__ModuleLoader__.load({ id: ${JSON.stringify(name)}, factory: (require) => {\nvar module = { exports: {} }; var exports = module.exports;` },
-  footer: { js: 'return module.exports; } });' },
-})
+  // DSH rc.3 的 /plugins 路由装载闭包工厂，不装载普通 ESM。
+  // 依据官方 packages/client/tsdown.client.ts 及 web/src/platform.ts：
+  // 只有宿主提供的模块保持 require，其余依赖必须随客户端打包。
+  await build({
+    entryPoints: ['src/client/index.tsx'],
+    outfile: join(outdir, 'client.js'),
+    bundle: true,
+    platform: 'browser',
+    format: 'cjs',
+    target: 'es2023',
+    jsx: 'automatic',
+    external: ['react', 'react/jsx-runtime', '@deepseek-ai/cordis', '@deepseek-ai/dsh-client-store', 'zod'],
+    plugins: [plotLocal],
+    define: {
+      ...define,
+      __NOTE_MATH_CSS__: JSON.stringify(mathCss),
+      'process.env.NODE_ENV': '"production"',
+      __OFFLINE_VIEWER__: JSON.stringify(offline.outputFiles[0].text),
+    },
+    loader: { '.css': 'text' },
+    banner: { js: plotNotice + `window.__ModuleLoader__.load({ id: ${packageName}, factory: (require) => {\nvar module = { exports: {} }; var exports = module.exports;` },
+    footer: { js: 'return module.exports; } });' },
+  })
+}
+
+if (import.meta.main) {
+  const { name } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+  await buildPlugin(name)
+}

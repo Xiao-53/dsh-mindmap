@@ -101,14 +101,16 @@ npm run pack:plugin
 
 `typecheck` 分别检查 Host / Client，避免把宿主两端同名的 Context 服务声明混在一起。`test` 使用 Node 自带测试运行器，前置构建插件及 DOM 测试模块；jsdom 只用于验证组件和选区，不作为浏览器视觉验收。`build` 使用 esbuild，将样式作为文本随客户端入口携带，不打包第二份 React。DSH 包固定为 `0.2.2-rc.3`。
 
-构建输出为 `lib/index.js`、`lib/client.js` 和 `lib/typert.js`；`npm run pack:plugin` 生成 `dsh-mindmap-0.2.5.tgz`。安装包仅含这三项、`package.json` 和 `cordis.yml`；测试、文档、用户数据及本地状态不打包。`private: true` 禁止误发布，但允许本地 pack / 安装。`lib/`、`node_modules/`、tgz 属于被忽略的本地产物。
+构建输出为 `lib/index.js`、`lib/client.js` 和 `lib/typert.js`。GitHub Release 和本地安装继续使用 `npm run pack:plugin` 生成的 `dsh-mindmap-<版本>.tgz`，包名仍为 `dsh-mindmap`。npm 官方仓库包使用 `npm pack`，由 `prepack` 先构建，再生成 `xiao-53-dsh-mindmap-<版本>.tgz`，包名为 `@xiao-53/dsh-mindmap`。同一 profile 只安装其中一种。
+
+两个安装包均包含三个构建入口、`package.json`、`cordis.yml`、`README.md` 和 `LICENSE`。测试、开发文档、用户数据及本地状态不打包。`lib/`、`node_modules/`、tgz 属于被忽略的本地产物。
 
 ## 在已有 DSH 中加载
 
 先确认运行实例是 `0.2.2-rc.3`，并确认它使用的 profile。以下命令遵循官方 bundle 安装流程，**尚未在本轮真实 DSH GUI 中执行**。将占位参数换成实际值，不重置已有 profile：
 
 ```powershell
-dsh plugin --profile <当前profile> add <安装包的绝对路径>/dsh-mindmap-0.2.5.tgz
+dsh plugin --profile <当前profile> add <安装包的绝对路径>/dsh-mindmap-<版本>.tgz
 dsh --profile <当前profile> --dump-config
 ```
 

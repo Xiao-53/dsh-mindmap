@@ -7,6 +7,7 @@ import { validateTypertManifest } from '@deepseek-ai/dsh-typert-loader'
 import { posix } from 'node:path'
 import { sampleMap } from '../support/maps.ts'
 import { requestMethod } from '../../src/shared/rpc.ts'
+import manifest from '../../package.json' with { type: 'json' }
 import { pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
 const { TYPERT } = await import(pathToFileURL(resolve('lib/typert.js')).href)
@@ -14,7 +15,7 @@ const plugin = await import(pathToFileURL(resolve('lib/index.js')).href)
 test('构建后的插件通过真实 Cordis/Typert/Gateway 绑定会话并检查授权', async () => {
   const ctx = new Context()
   new TypertRegistry(ctx)
-  ctx.typert.register(validateTypertManifest('dsh-mindmap', TYPERT))
+  ctx.typert.register(validateTypertManifest(manifest.name, TYPERT))
   let denied = false
   const decisions: any[] = []
   ctx.provide('remoteAccess', {

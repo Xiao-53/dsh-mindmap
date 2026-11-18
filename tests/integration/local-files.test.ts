@@ -117,6 +117,11 @@ test('真实官方文件服务：分页、条件布局保存及 junction 越界�
     await assert.rejects(library.save(data, initial.version))
     await assert.rejects(library.save({ ...data, folders: data.folders.map(f => f.id === 'physics' ? { ...f, parentId: 'chapter' } : f) }, savedLibrary.version))
     assert.deepEqual((await library.read()).data, data)
+    const orderedData = { ...data, rootMapOrder: [secondId], folderMapOrders: { chapter: [firstId] } }
+    const savedOrdered = await library.save(orderedData, savedLibrary.version)
+    assert.deepEqual(savedOrdered.data, orderedData)
+    await assert.rejects(library.save({ ...orderedData, folderMapOrders: { missing: [firstId] } }, savedOrdered.version))
+    await assert.rejects(library.save({ ...orderedData, rootMapOrder: [firstId] }, savedOrdered.version))
     assert.equal((await readSnapshot(port, firstId)).fingerprint, fresh.fingerprint)
     const outside = join(directory, 'outside')
     await mkdir(outside)

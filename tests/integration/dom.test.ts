@@ -332,3 +332,134 @@ test('首期面板实际挂载、加载、搜索、打开/关闭笔记和复制�
     dom.window.close()
   }
 })
+
+test('管理页支持直接拖到目标导图下方、展开文件夹内不冒泡回根目录、文件夹排序不嵌套且搜索禁用拖拽', async () => {
+  const dom = new JSDOM('<!doctype html><div id="root"></div>', { url: 'http://localhost/' })
+  const originals = new Map<string, PropertyDescriptor | undefined>()
+  for (const [key, value] of [
+    ['window', dom.window],
+    ['document', dom.window.document],
+    ['Element', dom.window.Element],
+    ['HTMLElement', dom.window.HTMLElement],
+    ['Node', dom.window.Node],
+  ] as const) {
+    originals.set(key, Object.getOwnPropertyDescriptor(globalThis, key))
+    Object.defineProperty(globalThis, key, { value, configurable: true, writable: true })
+  }
+  const savedLibraries: any[] = []
+  let libraryState = {
+    version: 'v1',
+    workspaceKey: 'ws-1',
+    data: {
+      schemaVersion: 1 as const,
+      folders: [
+        { id: 'f1', title: '文件夹一', parentId: null },
+        { id: 'f2', title: '文件夹二', parentId: null },
+      ],
+      mapFolders: { m1: 'f1', m2: 'f1' },
+    },
+  }
+  const host = {
+    list: async () => ({
+      maps: [
+        { id: 'a', title: '根目录 A' },
+        { id: 'b', title: '根目录 B' },
+        { id: 'm1', title: '内部 1' },
+        { id: 'm2', title: '内部 2' },
+      ],
+      diagnostics: [],
+      library: libraryState,
+    }),
+    saveLibrary: async (data: any) => {
+      savedLibraries.push(data)
+      libraryState = { ...libraryState, version: `v${savedLibraries.length + 1}`, data }
+      return libraryState
+    },
+    watch: () => () => {},
+  }
+  const listeners = new Set<() => void>()
+  const state = { selectedMapId: undefined, maps: {}, pending: {} }
+  const useStore = (selector: (v: any) => any) =>
+    selector(useSyncExternalStore(fn => { listeners.add(fn); return () => listeners.delete(fn) }, () => state))
+  const tab: any = { visible: true, navigation: { revision: 0 }, actions: { close: () => {} } }
+  const { createRoot } = await import('react-dom/client')
+  const container = dom.window.document.querySelector('#root')!
+  const root = createRoot(container)
+  const makeTransfer = (payload?: string) => {
+    const store = new Map<string, string>(payload ? [['application/x-dsh-atlas-library', payload]] : [])
+    return {
+      types: ['application/x-dsh-atlas-library'],
+      effectAllowed: 'move',
+      dropEffect: 'move',
+      setData: (k: string, v: string) => { store.set(k, v) },
+      getData: (k: string) => store.get(k) ?? '',
+    }
+  }
+  try {
+    await act(async () => {
+      root.render(createElement(AtlasPane, {
+        host, sessionId: 's1',
+        actions: { selectMap: () => {}, setReading: () => {}, setPending: () => {}, setCamera: () => {} },
+        useStore, useTabInfo: () => ({ tab }),
+        inputActions: { captureInsertion: () => ({ start: 0, end: 0, draftRev: 1 }) },
+        insertReference: () => true, insertText: () => false,
+      }))
+    })
+    const rowByTitle = (title: string) =>
+      Array.from(container.querySelectorAll<HTMLLIElement>('.library-map')).find(li => li.textContent?.includes(title))!
+    const folderLineByTitle = (title: string) =>
+      Array.from(container.querySelectorAll<HTMLElement>('.library-entry-line')).find(el => el.textContent?.includes(title))!
+
+    // 1. 直接把根目录 A 拖到已展开文件夹 f1 内 内部 1 下方（getBoundingClientRect 默认高 0 时默认落在下方）
+    const dragA = rowByTitle('根目录 A')
+    const targetM1 = rowByTitle('内部 1')
+    const dt1 = makeTransfer()
+    await act(async () => {
+      const start = new dom.window.Event('dragstart', { bubbles: true, cancelable: true })
+      Object.defineProperty(start, 'dataTransfer', { value: dt1 })
+      dragA.dispatchEvent(start)
+      const over = new dom.window.Event('dragover', { bubbles: true, cancelable: true })
+      Object.defineProperty(over, 'dataTransfer', { value: dt1 })
+      targetM1.dispatchEvent(over)
+    })
+    assert.ok(targetM1.querySelector('.library-entry-line')?.classList.contains('is-drop-after'))
+    await act(async () => {
+      const drop = new dom.window.Event('drop', { bubbles: true, cancelable: true })
+      Object.defineProperty(drop, 'dataTransfer', { value: dt1 })
+      targetM1.dispatchEvent(drop)
+    })
+    assert.equal(savedLibraries.at(-1).mapFolders.a, 'f1')
+    assert.deepEqual(savedLibraries.at(-1).folderMapOrders.f1, ['m1', 'a', 'm2'])
+
+    // 2. 拖动文件夹 f2 到 f1 位置只调整顺序，不发生嵌套
+    const lineF2 = folderLineByTitle('文件夹二')
+    const lineF1 = folderLineByTitle('文件夹一')
+    const dt2 = makeTransfer()
+    await act(async () => {
+      const start = new dom.window.Event('dragstart', { bubbles: true, cancelable: true })
+      Object.defineProperty(start, 'dataTransfer', { value: dt2 })
+      lineF2.dispatchEvent(start)
+      const drop = new dom.window.Event('drop', { bubbles: true, cancelable: true })
+      Object.defineProperty(drop, 'dataTransfer', { value: dt2 })
+      lineF1.dispatchEvent(drop)
+    })
+    assert.deepEqual(savedLibraries.at(-1).folders.map((f: any) => f.id), ['f2', 'f1'])
+    assert.ok(savedLibraries.at(-1).folders.every((f: any) => f.parentId === null))
+
+    // 3. 搜索期间禁用拖拽
+    const search = container.querySelector<HTMLInputElement>('input[type="search"]')!
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!
+      setter.call(search, '内部')
+      search.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    assert.equal(rowByTitle('内部 1').getAttribute('draggable'), 'false')
+  } finally {
+    await act(async () => root.unmount())
+    for (const [key, original] of originals) {
+      if (original) Object.defineProperty(globalThis, key, original)
+      else Reflect.deleteProperty(globalThis, key)
+    }
+    dom.window.close()
+  }
+})
