@@ -4,6 +4,10 @@
 
 插件内嵌的mindmap skill没有独立SKILL.md副本，正文和发现描述来自`src/server/prompts/authoring.ts`中的mindmapAuthoring/mindmapDescription；同目录`register.ts`只注册skill。0.3.9起使用DSH原生`/mindmap` skill入口，旧`/minimap`指令及其恢复子命令完全删除。提示词目录为`src/server/prompts/`，编辑后需重新构建安装包并在DSH更新插件。工具参数由`src/server/tools/schemas.ts`校验，修改文案不会改变schema。
 
+## v0.4.1 节点详情与单页组织
+
+`/mindmap` 可根据实际工具说明如何开启详情编辑、原位改公式、移动图片或整张图表，以及何时通过图表和正文位置引用让 DSH 修改内容。新建和扩展时预估每个视图的 `occurrences`，提交前逐页复核默认 20 个以内，并通过子图和详情保留材料覆盖。侧栏交互、自动保存和离线显示按实际观察验收。参见 [本轮可复制验收提示词](validation/dsh-regression-prompt.md#v041-定向验收提示词)。
+
 ## 0.3.9 使用流程与内容规则
 
 0.3.10补充：运行时skill已将新建与已有图阅读/修改拆成独立路径，明确新建无需列图查重；已有图身份未知时才列图定位，读图限于本次所需内容或用户指定参考。新增完整创建参数示例和字段语义：nodes/occurrences、relations/relationIds、notes正文映射及子图双向关联；centerNodeId不要求同时出现在子图画布。格式由skill及工具schema提供，不为学习格式读取其他地图、搜索源码或试建地图；用户明确要求复用已有内容时仍可读取。示例只在运行时正文维护，本文件不复制，实际效果见[0.3.10人工场景](validation/0.3.10.md)。

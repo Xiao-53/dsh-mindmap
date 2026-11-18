@@ -1,4 +1,4 @@
-import { NodeEditor } from './NodeEditor.tsx'
+import { NodeEditor, type NoteBodyEditor, type NoteViewport, type NoteViewportAnchor } from './NodeEditor.tsx'
 import type { EditSession } from '../edit-session.ts'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { KnowledgeNode, MapSnapshot } from '../../shared/map-types.ts'
@@ -12,7 +12,7 @@ import { referenceContentDigest } from '../reference-source.ts'
 import type { PlotData } from '../../shared/note-plot.ts'
 export function NoteInspector({
   snapshot,
-  editSession, viewId,
+  editSession, bodyEditor, viewId,
   node,
   scroll,
   onScroll,
@@ -27,6 +27,7 @@ export function NoteInspector({
   offline, width = 320, onWidth,
 }: {
   editSession?: EditSession
+  bodyEditor?: NoteBodyEditor
   viewId?: string
   snapshot: MapSnapshot
   node: KnowledgeNode
@@ -45,7 +46,7 @@ export function NoteInspector({
   offline?: boolean
 }) {
   const [editing, setEditing] = useState(false)
-  const canEdit = !offline && !!editSession && !!viewId && snapshot.writable !== false
+  const canEdit = !offline && !!editSession && !!bodyEditor && !!viewId && snapshot.writable !== false
   const inlineEditor = canEdit && editing
   const canInsert = !!onInsert && !offline
   const editBlocked = editSession && ['readonly', 'conflict', 'recovery_required'].includes(editSession.status)
@@ -56,22 +57,28 @@ export function NoteInspector({
   const [popup, setPopup] = useState({ x: 12, y: 60 })
   const [menu, setMenu] = useState(false)
   const [referenceFallback, setReferenceFallback] = useState(false)
-  const toggleScroll = useRef<number>()
+  const viewport = useRef<NoteViewport>()
+  const toggleScroll = useRef<{ top: number; anchor?: NoteViewportAnchor }>()
   const markdown = snapshot.notes[node.id] ?? ''
   useLayoutEffect(() => {
     close.current?.focus({ preventScroll: true })
   }, [node.id])
   useLayoutEffect(() => {
-    if (scrollable.current) scrollable.current.scrollTop = toggleScroll.current ?? scroll
+    if (scrollable.current) {
+      scrollable.current.scrollTop = toggleScroll.current?.top ?? scroll
+      const anchor = toggleScroll.current?.anchor
+      if (anchor) viewport.current?.restore(scrollable.current, anchor)
+    }
     toggleScroll.current = undefined
   }, [node.id, scroll, inlineEditor])
   const toggleEdit = (enable: boolean) => {
-    toggleScroll.current = scrollable.current?.scrollTop
+    const scroller = scrollable.current
+    if (scroller) toggleScroll.current = { top: scroller.scrollTop, anchor: viewport.current?.capture(scroller) }
     setEditing(enable)
   }
   const updateSelectionMenu = () => {
     const area = readable.current
-    if (!area || !canInsert) {
+    if (!area || !canInsert || inlineEditor) {
       setMenu(false)
       return false
     }
@@ -94,7 +101,13 @@ export function NoteInspector({
     updateSelectionMenu()
     document?.addEventListener('selectionchange', updateSelectionMenu)
     return () => document?.removeEventListener('selectionchange', updateSelectionMenu)
-  }, [node.id, canInsert, markdown])
+  }, [node.id, canInsert, markdown, inlineEditor])
+  const previousReference = useRef(reference)
+  useEffect(() => {
+    if (reference !== previousReference.current && reference && inlineEditor)
+      onFinishEdit?.(() => toggleEdit(false))
+    previousReference.current = reference
+  }, [reference, inlineEditor, onFinishEdit])
   useEffect(() => {
     if (!reference || reference.kind === 'node' || reference.nodeId !== node.id || !readable.current || inlineEditor) {
       setReferenceFallback(false)
@@ -168,7 +181,7 @@ export function NoteInspector({
           if (((e.shiftKey && e.key === 'F10') || e.key === 'ContextMenu') && updateSelectionMenu()) e.preventDefault()
         }}
       >
-        <NodeEditor key={node.id} session={editSession} node={node} snapshot={snapshot} viewId={viewId} editing={inlineEditor}
+        <NodeEditor key={node.id} session={editSession} editor={bodyEditor} viewport={viewport} node={node} snapshot={snapshot} viewId={viewId} editing={inlineEditor}
           onPlotReference={onPlotReference} onPositionReference={onPositionReference} onSelectionReference={onInsert}/>
         {referenceFallback && (reference?.kind === 'plot' || reference?.kind === 'note-position') && <details className="note-plot" open>
           <summary>{reference.kind === 'plot' ? '图块已变化或无法定位 · 引用快照' : '正文位置无法确认，请重新选点 · 引用快照'}</summary>

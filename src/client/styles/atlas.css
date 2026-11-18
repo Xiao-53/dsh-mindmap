@@ -569,7 +569,8 @@
   font-size: 14px;
   margin: 12px 0 6px;
 }
-.dsh-atlas .detail-body img {
+/* CodeMirror 的行内光标占位也使用 img，它没有图片来源。 */
+.dsh-atlas .detail-body img[src] {
   display: block;
   max-width: 100%;
   height: auto;
@@ -1029,7 +1030,7 @@
 .dsh-atlas .note-readonly .note-image-remove { display: none; }
 .dsh-atlas .note-sheet textarea:not([readonly]):hover { background: #f6f2eb; }
 .dsh-atlas .note-sheet textarea:focus { background: #f6f2eb; box-shadow: 0 1px #9aacae; }
-.dsh-atlas .note-sheet .note-inline-title { font-size: 22px; font-weight: 650; line-height: 1.3; color: #51473e; }
+.dsh-atlas .note-sheet .note-inline-title { font-size: 18px; font-weight: 650; line-height: 1.4; color: #51473e; }
 .dsh-atlas .note-sheet .note-inline-summary { font-size: 13px; line-height: 1.65; color: #776d60; margin-top: 5px; }
 .dsh-atlas .note-prose { position: relative; border-top: 1px solid #ece5d9; margin-top: 12px; padding-top: 12px; }
 .dsh-atlas .note-inline-tools { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
@@ -1040,9 +1041,11 @@
 .dsh-atlas .note-tool:hover, .dsh-atlas .atlas-host-button.atlas-quiet-icon:hover { background: #eee8df; }
 .dsh-atlas .note-tool:disabled, .dsh-atlas .atlas-host-button.atlas-quiet-icon:disabled { opacity: .45; cursor: default; }
 .dsh-atlas .note-tool svg { width: 16px; height: 16px; }
-.dsh-atlas .inspector-body img { max-width: 100%; height: auto; }
+.dsh-atlas .inspector-body img[src] { max-width: 100%; height: auto; }
 .dsh-atlas .note-inline-image { position: relative; display: inline-block; max-width: 100%; vertical-align: middle; }
 .dsh-atlas .note-inline-image img { display: block; border-radius: 5px; }
+.dsh-atlas .note-image-movable { cursor: grab; touch-action: none; user-select: none; }
+.dsh-atlas .note-image-movable.note-image-dragging { cursor: grabbing; }
 .dsh-atlas .note-image-remove {
   position: absolute; top: 3px; right: 3px; width: 24px; height: 24px; padding: 0;
   border-radius: 50%; border: 1px solid #e6ded2; background: #fffefa; color: #66594c; cursor: pointer; opacity: 0;
@@ -1059,31 +1062,70 @@
 .dsh-atlas .inspector.inspector-inline .inspector-flag button { width: 28px; height: 28px; border-radius: 5px; }
 .dsh-atlas .inspector.inspector-inline .inspector-flag button:hover { background: #eee8df; }
 
-.dsh-atlas .note-rich-body { min-height: 68px; padding-block: 6px; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 3px; }
-.dsh-atlas .note-rich-body[contenteditable="true"]:focus { outline: 1px solid #aab9ba; outline-offset: 5px; }
-.dsh-atlas .note-rich-body:empty::before { content: attr(data-placeholder); color: #81786f; pointer-events: none; }
-.dsh-atlas .note-rich-body :is(h1,h2,h3,h4,h5,h6) { color: #385b66; font-size: 13px; font-weight: 650; line-height: 1.5; margin: 10px 0 4px; }
-.dsh-atlas .note-rich-body h1 { font-size: 16px; font-weight: 750; margin: 16px 0 6px; }
-.dsh-atlas .note-rich-body h2 { font-size: 14px; font-weight: 700; margin: 13px 0 5px; }
+.dsh-atlas .note-rich-body, .dsh-atlas .note-live-editor {
+  min-height: 68px; padding-block: 6px; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 3px;
+}
+.dsh-atlas .note-sheet:not(.note-readonly) .note-prose:focus-within { border-top-color: #aab9ba; }
+.dsh-atlas .note-sheet :is(.note-rich-body,.note-live-editor) :is(h1,h2,h3,h4,h5,h6,.note-cm-h1,.note-cm-h2,.note-cm-h3,.note-cm-h4,.note-cm-h5,.note-cm-h6) {
+  --note-heading-top: 9px; --note-heading-bottom: 4px;
+  color: #4c656e; font-size: 13px; font-weight: 600; line-height: 1.55; letter-spacing: normal;
+}
+.dsh-atlas .note-sheet :is(.note-rich-body h1,.note-live-editor .note-cm-h1) {
+  --note-heading-top: 12px; --note-heading-bottom: 5px; font-size: 15px; font-weight: 680;
+}
+.dsh-atlas .note-sheet :is(.note-rich-body h2,.note-live-editor .note-cm-h2) {
+  --note-heading-top: 10px; --note-heading-bottom: 4px; font-size: 14px; font-weight: 640;
+}
+.dsh-atlas .note-sheet .note-rich-body :is(h1,h2,h3,h4,h5,h6) {
+  margin: var(--note-heading-top) 0 var(--note-heading-bottom);
+}
+.dsh-atlas .note-live-wrap { position: relative; }
+.dsh-atlas .note-live-editor .cm-editor,
+.dsh-atlas .note-live-editor .cm-scroller,
+.dsh-atlas .note-live-editor .cm-content {
+  font: inherit; color: inherit; letter-spacing: inherit; min-width: 0;
+}
+.dsh-atlas .note-live-editor .cm-focused { outline: none; }
+.dsh-atlas .note-live-editor .cm-content { padding: 0; }
+.dsh-atlas .note-live-editor .cm-line { padding-inline: 0; overflow-wrap: anywhere; }
+.dsh-atlas .note-live-editor .cm-placeholder { color: #81786f; }
+.dsh-atlas .note-live-editor .cm-line:is(.note-cm-h1,.note-cm-h2,.note-cm-h3,.note-cm-h4,.note-cm-h5,.note-cm-h6) {
+  padding-block: var(--note-heading-top) var(--note-heading-bottom);
+}
+.dsh-atlas .note-live-editor .note-cm-gap { font-size: 10px; line-height: 1; }
+.dsh-atlas .note-live-editor .note-cm-marker { color: #81786f; }
+.dsh-atlas .note-live-editor .note-cm-list { padding-inline-start: var(--note-list-indent); text-indent: calc(-1 * var(--note-list-indent)); }
+.dsh-atlas .note-live-editor .note-cm-quote, .dsh-atlas .note-rich-body blockquote {
+  padding-inline-start: 10px; border-inline-start: 2px solid #ded6c9; color: #776d60;
+}
+.dsh-atlas .note-rich-body blockquote { margin-inline: 0; }
+.dsh-atlas .note-rich-body :is(ol,ul) { padding-inline-start: 2.5ch; margin-block: 0 10px; }
+.dsh-atlas .note-rich-body li > :is(ol,ul), .dsh-atlas .note-rich-body li > p { margin-block: 0; }
 .dsh-atlas .note-rich-body [data-note-task=" "]::before { content: "☐ "; }
 .dsh-atlas .note-rich-body [data-note-task="x"]::before { content: "☑ "; }
 .dsh-atlas .note-rich-link { color: #896448; text-decoration: underline; }
 .dsh-atlas .note-edit-hint { color: #81786f; font-size: 12px; }
+.dsh-atlas .note-live-editor .note-cm-code, .dsh-atlas .note-live-editor code, .dsh-atlas .note-live-editor .note-cm-tex {
+  font-family: "Cascadia Mono", Consolas, ui-monospace, monospace; font-size: .92em;
+}
+.dsh-atlas .note-live-editor .note-cm-tex { color: #42636b; }
+.dsh-atlas .note-live-editor .note-cm-delimiter { color: #8a6294; }
 
 .dsh-atlas .note-math { max-width: 100%; vertical-align: baseline; }
 .dsh-atlas .note-math-block { display: block; overflow-x: auto; overflow-y: hidden; padding: 0 2px; }
 .dsh-atlas .note-math-block .katex-display { width: max-content; min-width: 100%; margin: .55em 0; }
 .dsh-atlas .note-math-invalid { color: #98594c; overflow-wrap: anywhere; white-space: pre-wrap; }
-.dsh-atlas .note-math[role="button"] { cursor: pointer; border-radius: 3px; }
-.dsh-atlas .note-math[role="button"]:hover { background: #eee8df; }
+.dsh-atlas .note-cm-formula { cursor: text; border-radius: 3px; }
+.dsh-atlas .note-cm-formula:hover { background: #eee8df; }
 .dsh-atlas .note-math:focus-visible { outline: 1px solid #aab9ba; outline-offset: 2px; }
-
-.dsh-atlas .note-formula-editor { margin-top: 10px; padding: 8px 10px; border: 1px solid #e6ded2; border-radius: 6px; color: #61574c; font-size: 12px; }
-.dsh-atlas .note-formula-editor textarea { margin-top: 4px; padding: 5px 7px; background: #f7f3ec; font-family: monospace; resize: vertical; overflow: auto; }
-.dsh-atlas .note-formula-editor .editor-actions { margin-top: 6px; gap: 5px; }
-.dsh-atlas .note-formula-editor .btn { min-height: 27px; padding: 3px 8px; }
-.dsh-atlas .note-formula-editor .note-math { min-height: 22px; padding-top: 5px; }
-.dsh-atlas .note-math:not(.note-math-block) { display: inline-block; overflow-x: auto; vertical-align: middle; }
+.dsh-atlas .note-live-editor .note-cm-math-preview { border: 1px solid #e6ded2; border-radius: 5px; }
+/* 行内 flex 从 KaTeX 内容取基线，过宽时仍可横向滚动。 */
+.dsh-atlas .note-math:not(.note-math-block,.note-math-invalid) {
+  display: inline-flex; align-items: baseline; vertical-align: baseline;
+  overflow-x: auto; scrollbar-width: none;
+}
+.dsh-atlas .note-math:not(.note-math-block,.note-math-invalid) > .katex { flex: none; }
+.dsh-atlas .note-math:not(.note-math-block,.note-math-invalid)::-webkit-scrollbar { display: none; }
 
 .dsh-atlas .note-plot {
   position: relative;

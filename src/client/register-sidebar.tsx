@@ -13,6 +13,7 @@ import { defineStore } from '@deepseek-ai/dsh-client-store'
 import type { ReadingStore, ReadingState, Camera } from './reading-state.ts'
 import { createHostAdapter } from './host-adapter.ts'
 import { AtlasPane } from './AtlasPane.tsx'
+import type { NoteBodyEditor } from './components/NodeEditor.tsx'
 import type { ReferenceSnapshot } from './reference-source.ts'
 import type { PendingInsertion } from './insert-reference.ts'
 export const ATLAS_KIND = 'dsh-mindmap'
@@ -55,7 +56,7 @@ export function createReadingStore() {
     },
   })
 }
-export function registerSidebar(ctx: Context): void {
+export function registerSidebar(ctx: Context, bodyEditor: NoteBodyEditor): void {
   ctx.effect(() => () => disposeEditSessions())
   ctx.effect(() => ctx.sidebarRight.registerCloseHandler(ATLAS_KIND, sessionId => closeEditSessions(sessionId)))
   ctx.effect(() =>
@@ -86,6 +87,7 @@ export function registerSidebar(ctx: Context): void {
           const sessions = ctx.sessions as unknown as Pick<ISessions, 'binding'>
           const binding = sessions.binding(sessionId)
           return {
+            bodyEditor,
             host: createHostAdapter(ctx, sessionId),
             insertReference: (ref: ReferenceInsert, span: TokenSpan) => {
               if (

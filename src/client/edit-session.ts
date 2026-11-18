@@ -13,25 +13,7 @@ const normalized = (v: ViewLayout): ViewLayout => ({ viewId:v.viewId, mode:v.mod
 const sameFileContents = (a:MapSnapshot,b:MapSnapshot) =>
   a.files.length===b.files.length && a.files.every(file=>b.files.some(other=>file.path===other.path&&file.digest===other.digest))
 const paused = (status: string) => ['readonly', 'conflict', 'recovery_required'].includes(status)
-export type FormulaDraft = {
-  nodeId: string
-  viewId: string
-  occurrence: number
-  markdown: string
-  raw: string
-  originalTex: string
-  tex: string
-}
-
 export class EditSession {
-  formulaDraft?: FormulaDraft
-
-  setFormulaDraft(draft?: FormulaDraft) {
-    this.formulaDraft = draft
-    this.emit()
-  }
-  get hasPendingFormula() { return !!this.formulaDraft && this.formulaDraft.tex !== this.formulaDraft.originalTex }
-
   baseline: MapSnapshot
   working: MapSnapshot
   history = new EditHistory()
@@ -42,6 +24,7 @@ export class EditSession {
   message = ''
   draft?: { edit: Extract<Edit, { kind: 'details' }>; viewId: string; composition: boolean }
   private timer?: ReturnType<typeof setTimeout>
+  private composing = false
   private listeners = new Set<() => void>()
   private flight?: Promise<void>
   private pending?: EditRequest
@@ -79,18 +62,24 @@ export class EditSession {
     if (this.draft && this.draft.edit.nodeId !== edit.nodeId && !this.finishInput()) return
     for (const a of edit.images) this.pool.set(a.id, a)
     this.draft = { edit: { ...edit, images: [] }, viewId, composition }
-    clearTimeout(this.timer)
-    if (!composition) this.timer = setTimeout(() => {
-      if (this.finishInput()) void this.save(this.status === 'failed' && !this.pending)
-    }, immediate ? 0 : 800)
+    this.scheduleInput(immediate)
     this.emit()
   }
   composition(active: boolean) {
-    clearTimeout(this.timer)
+    if (this.composing === active) return
+    this.composing = active
     if (this.draft) this.draft.composition = active
+    this.scheduleInput()
+  }
+  private scheduleInput(immediate = false) {
+    clearTimeout(this.timer)
+    if (this.draft && !this.draft.composition && !this.composing) this.timer = setTimeout(() => {
+      if (this.finishInput()) void this.save(this.status === 'failed' && !this.pending)
+    }, immediate ? 0 : 800)
   }
   finishInput() {
     clearTimeout(this.timer)
+    if (this.composing) return false
     if (!this.draft) return true
     if (this.draft.composition || !this.draft.edit.title.trim()) {
       this.message = '标题不能为空，或输入尚未结束；草稿已保留'
@@ -168,7 +157,7 @@ export class EditSession {
   accept(snapshot: MapSnapshot) {
     if (this.flight) { this.refreshAfterSave = true; return }
     if (snapshot.fingerprint && snapshot.fingerprint === this.baseline.fingerprint && snapshot.writable === this.baseline.writable) return
-    if (this.dirty || this.pending) {
+    if (this.dirty || this.pending || this.composing) {
       this.status = 'conflict'
       this.message = '导图被外部修改；本地副本已保留，请放弃副本并载入磁盘版本，或保留并取消离开'
       this.emit()

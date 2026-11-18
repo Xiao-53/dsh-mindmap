@@ -73,8 +73,13 @@ export function highlightReference(
   container: HTMLElement,
   ref: ReferenceSnapshot,
 ): boolean {
-  const projection = noteProjection(container)
-  const location = uniqueSelection(projection.text, ref)
+  let projection = noteProjection(container)
+  let location = uniqueSelection(projection.text, ref)
+  const body = container.querySelector<HTMLElement>('.note-rich-body')
+  if (!location && body) {
+    projection = noteProjection(body, true)
+    location = uniqueSelection(projection.text, ref)
+  }
   if (!location) return false
   const start = projection.boundary(location.start, false)
   const end = projection.boundary(location.end, true)

@@ -2,7 +2,7 @@ import { mathMarkup } from '../shared/note-math.ts'
 import type { FormulaToken } from '../shared/note-markdown.ts'
 export { mathMarkup } from '../shared/note-math.ts'
 
-export function formulaElement(document: Document, token: FormulaToken, editable = false) {
+export function formulaElement(document: Document, token: FormulaToken) {
   const display = token.type === 'formulaBlock'
   const node = document.createElement(display ? 'div' : 'span')
   node.className = 'note-math' + (display ? ' note-math-block' : '')
@@ -17,12 +17,7 @@ export function formulaElement(document: Document, token: FormulaToken, editable
     node.title = '公式无法预览'
     node.setAttribute('aria-label', '公式无法预览：' + token.source)
   }
-  if (editable) {
-    node.contentEditable = 'false'
-    node.tabIndex = 0
-    node.setAttribute('role', 'button')
-    if (markup !== null) node.setAttribute('aria-label', '编辑公式：' + token.tex)
-  } else if (display) {
+  if (display) {
     node.tabIndex = 0
     node.setAttribute('role', 'region')
     if (markup !== null) node.setAttribute('aria-label', '数学公式')

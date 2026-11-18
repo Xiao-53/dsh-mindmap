@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { JSXGraph, type Board } from 'jsxgraph'
 import { plotExpressionTex, plotFraction, plotInterpolate, samplePlot, type PlotPoint, type PlotRange } from '../../shared/plot-expression.ts'
 import { type PlotData, type PlotToken } from '../../shared/note-plot.ts'
@@ -178,7 +178,9 @@ function PlotSurface({ token }: { token: PlotToken }) {
   </>
 }
 
-export function NotePlot({ token, onReference }: { token: PlotToken; onReference?: (data: PlotData) => void }) {
+type PlotControls = { remove: () => void; startDrag: (event: DragEvent<HTMLButtonElement>) => void; endDrag: () => void }
+
+export function NotePlot({ token, onReference, controls }: { token: PlotToken; onReference?: (data: PlotData) => void; controls?: PlotControls }) {
   const root = useRef<HTMLElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const [menu, setMenu] = useState(false)
@@ -231,6 +233,11 @@ export function NotePlot({ token, onReference }: { token: PlotToken; onReference
       </table></details>}
     {menu && onReference && <div className="note-plot-menu" role="menu" aria-label="图块操作">
       <button type="button" role="menuitem" ref={button} onClick={() => { close(); onReference(data) }}>添加到 DSH 提问框</button>
+    </div>}
+    {controls && <div className="note-plot-controls" data-plot-art>
+      <button className="note-plot-drag" type="button" draggable aria-label="拖动图表" title="拖动图表"
+        onDragStart={controls.startDrag} onDragEnd={controls.endDrag}>⠿</button>
+      <button type="button" aria-label="删除图表" title="删除图表" onClick={controls.remove}>×</button>
     </div>}
   </figure>
 }

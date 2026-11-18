@@ -167,9 +167,8 @@ export function lexNote(source: string) {
   return tokens
 }
 export const notePlots = (source: string) => source.includes('dsh-plot') ? lexNote(source).filter(isPlot) : []
-export function sameNotePlots(before: string, after: string): boolean {
+export function sameNotePlots(before: string, after: string, previous = notePlots(before), next = notePlots(after)): boolean {
   if (before === after) return true
-  const previous = notePlots(before), next = notePlots(after)
   return previous.length === next.length && previous.every((plot, i) => plot.source === next[i].source)
 }
 export const isFormula = (token: {type: string}): token is FormulaToken =>
@@ -212,15 +211,39 @@ export function noteBlocks(source: string, tokens = lexNote(source)) {
   }
   const positions = new WeakMap<Token, { start: number; end: number }>()
   const blocks: { token: Token; start: number; end: number }[] = []
-  function scan(items: Token[], from: number, limit: number, top = false) {
+  function findRange(raw: string, from: number, limit: number, projected: boolean) {
+    const direct = normalized.indexOf(raw, from)
+    if (!projected || !raw.includes('\n')) return direct < 0 ? undefined : { at: direct, end: direct + raw.length }
+    const rows = raw.split('\n')
+    const first = rows[0]
+    for (let at = normalized.indexOf(first, from); at >= 0 && at < limit; at = normalized.indexOf(first, at + 1)) {
+      if (direct >= 0 && at >= direct) return { at: direct, end: direct + raw.length }
+      let end = at + first.length
+      for (const row of rows.slice(1)) {
+        if (normalized[end] !== '\n') { end = -1; break }
+        end++
+        if (!row) continue
+        const next = normalized.indexOf(row, end)
+        if (next < end || next + row.length > limit || !/^[> \t]*$/.test(normalized.slice(end, next))) {
+          end = -1
+          break
+        }
+        end = next + row.length
+      }
+      if (end >= at) return { at, end }
+    }
+    return undefined
+  }
+  function scan(items: Token[], from: number, limit: number, top = false, projected = false) {
     for (const token of items) {
       if (!token.raw.length) continue
-      const at = normalized.indexOf(token.raw, from)
-      if (at < from || at + token.raw.length > limit || (top && /\S/.test(normalized.slice(from, at)))) {
+      const match = findRange(token.raw, from, limit, projected)
+      if (!match || match.end > limit || (top && /\S/.test(normalized.slice(from, match.at)))) {
         if (top) return
         continue
       }
-      from = at + token.raw.length
+      const { at, end } = match
+      from = end
       const range = { start: original(at), end: original(from) }
       positions.set(token, range)
       if (top && token.type !== 'space') {
@@ -233,12 +256,48 @@ export function noteBlocks(source: string, tokens = lexNote(source)) {
         : token.type === 'list_item' ? /^\s*(?:[-+*]|\d{1,9}[.)])[ \t]+/.exec(token.raw)?.[0].length
         : token.type === 'strong' || token.type === 'del' ? 2
         : token.type === 'em' ? 1 : 0
-      if (nested) scan(nested, at + (prefix ?? 0), from)
-      else if (token.type === 'list') scan((token as Tokens.List).items, at, from)
+      if (nested) scan(nested, at + (prefix ?? 0), from, false, projected || token.type === 'blockquote' || token.type === 'list_item')
+      else if (token.type === 'list') scan((token as Tokens.List).items, at, from, false, projected)
     }
   }
   scan(tokens, 0, normalized.length, true)
   return { positions, blocks }
+}
+
+const generatedImagePath = /^(?:\.\.\/)*assets\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.image\.json$/i
+
+export function noteImageToken(token: Token): Tokens.Image | undefined {
+  if (token.type === 'image') return token as Tokens.Image
+  if (token.type !== 'link') return
+  // 兼容图片引用误删 ! 的旧笔记。只识别插件插图按钮生成的资源链接形态。
+  const link = token as Tokens.Link
+  if (link.text !== '图片' || !generatedImagePath.test(link.href) || link.raw !== '[图片](' + link.href + ')') return
+  return { ...link, type: 'image', title: null }
+}
+
+export function notePreviewSpans(source: string, tokens = lexNote(source), indexed = noteBlocks(source, tokens)) {
+  const normalized = (value: string) => value.replace(/\r\n?/g, '\n')
+  const spans: { start: number; end: number; token: FormulaToken | Tokens.Image | PlotToken }[] = []
+  function scan(items: Token[]) {
+    for (const token of items) {
+      const range = indexed.positions.get(token)
+      if (isPlot(token)) {
+        if (token.end > token.start && source.slice(token.start, token.end) === token.source)
+          spans.push({ start: token.start, end: token.end, token })
+        continue
+      }
+      const preview = isFormula(token) ? token : noteImageToken(token)
+      if (preview) {
+        if (range && normalized(source.slice(range.start, range.end)) === preview.raw) spans.push({ ...range, token: preview })
+      } else if (token.type === 'list') scan((token as Tokens.List).items)
+      else if (!['code', 'codespan', 'html'].includes(token.type)) {
+        const children = (token as { tokens?: Token[] }).tokens
+        if (children) scan(children)
+      }
+    }
+  }
+  scan(tokens)
+  return spans
 }
 
 export function inlineSourcePoints(source: string, token: Token, start: number) {
@@ -263,6 +322,36 @@ export function insertNoteBlock(source: string, at: number, block: string) {
   const trailing = after.trim() ? eol.repeat(Math.max(0, 2 - lines(right))) : ''
   // Existing whitespace stays in place, including the whitespace at EOF.
   return { markdown: before + leading + block + trailing + after, start: at + leading.length }
+}
+
+export function moveNoteImage(markdown: string, start: number, end: number, destination: number) {
+  if (destination >= start && destination <= end) return
+  const tokens = lexNote(markdown)
+  const index = noteBlocks(markdown, tokens)
+  if (destination !== 0 && destination !== markdown.length &&
+      !index.blocks.some(block => block.start === destination || block.end === destination)) return
+  const isImage = (span: ReturnType<typeof notePreviewSpans>[number], at: number, until: number) =>
+    span.token.type === 'image' && span.start === at && span.end === until
+  if (!notePreviewSpans(markdown, tokens, index).some(span => isImage(span, start, end))) return
+  const standalone = index.blocks.findIndex(block => block.start === start && block.end === end)
+  if (standalone !== -1) {
+    const order = index.blocks.filter((block, i) => i !== standalone && block.start < destination).length
+    if (order === standalone) return
+  }
+
+  const raw = markdown.slice(start, end)
+  const image = raw.startsWith('!') ? raw : '!' + raw
+  const rest = markdown.slice(0, start) + markdown.slice(end)
+  const at = destination > end ? destination - (end - start) : destination
+  const moved = insertNoteBlock(rest, at, image)
+  if (moved.markdown === markdown) return
+  const finish = moved.start + image.length
+  const movedTokens = lexNote(moved.markdown)
+  const movedIndex = noteBlocks(moved.markdown, movedTokens)
+  const block = movedIndex.blocks.find(item => item.start === moved.start && item.end === finish)
+  if (block?.token.type === 'paragraph' &&
+      notePreviewSpans(moved.markdown, movedTokens, movedIndex).some(span => isImage(span, moved.start, finish)))
+    return moved
 }
 
 export function changeNotePlot(markdown: string, id: string, destination?: number) {

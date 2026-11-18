@@ -1,6 +1,6 @@
 {
   "name": "dsh-mindmap",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
@@ -58,6 +58,11 @@
     "react": "^18.2.0"
   },
   "devDependencies": {
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/lang-markdown": "6.5.2",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.15",
     "@deepseek-ai/cordis": "~4.1.0",
     "@deepseek-ai/dsh-api-gateway": "0.2.2-rc.3",
     "@deepseek-ai/dsh-api-session-controller": "0.2.2-rc.3",

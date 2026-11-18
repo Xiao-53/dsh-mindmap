@@ -51,6 +51,7 @@ import { MapHeader } from './components/MapHeader.tsx'
 import { MapViewport } from './components/MapViewport.tsx'
 import { MapScene } from './components/MapScene.tsx'
 import { NoteInspector } from './components/NoteInspector.tsx'
+import type { NoteBodyEditor } from './components/NodeEditor.tsx'
 import { SearchOverlay } from './components/SearchOverlay.tsx'
 import { NodeCard } from './components/NodeCard.tsx'
 import { NodeMenu } from './components/NodeMenu.tsx'
@@ -63,6 +64,7 @@ import { plotContent, plotText, type PlotData } from '../shared/note-plot.ts'
 export type AtlasPaneProps = PropsRuntime<'sidebar.right.pane.tab'> &
   PropsStore<ReturnType<typeof createReadingStore>> & {
     host: HostAdapter
+    bodyEditor?: NoteBodyEditor
     insertReference: (ref: ReferenceInsert, span: TokenSpan) => boolean
     insertText?: (text: string, span: TokenSpan) => boolean
   }
@@ -222,7 +224,7 @@ export type ReadingPaneProps = Pick<AtlasPaneProps, 'actions' | 'useStore'> & {
   onViewNavigation?: () => void
   restoreReading?: boolean
 } & (
-  | ({ offline?: false; host: HostAdapter } & Pick<AtlasPaneProps, 'inputActions' | 'insertReference'>)
+  | ({ offline?: false; host: HostAdapter } & Pick<AtlasPaneProps, 'inputActions' | 'insertReference' | 'bodyEditor'>)
   | { offline: true; host: Pick<HostAdapter, 'read' | 'list'> }
 )
 export function ReadingPane(props: ReadingPaneProps) {
@@ -255,7 +257,6 @@ export function ReadingPane(props: ReadingPaneProps) {
   const [watchError, setWatchError] = useState('')
   const [saveError, setSaveError] = useState('')
   const [leaveAction,setLeaveAction]=useState<()=>void>()
-  const [leavingFormula,setLeavingFormula]=useState(false)
   const [leaving,setLeaving]=useState(false)
   const leaveCancel=useRef<HTMLButtonElement>(null)
   useEffect(()=>{if(leaveAction)leaveCancel.current?.focus()},[leaveAction])
@@ -519,13 +520,6 @@ export function ReadingPane(props: ReadingPaneProps) {
   const guard = async (action:()=>void) => {
     const active=editor.current
     if(!active){action();return}
-    if(active.hasPendingFormula){
-      setLeavingFormula(true)
-      setLeaveAction(()=>action)
-      return
-    }
-    if(active.formulaDraft)active.setFormulaDraft(undefined)
-    setLeavingFormula(false)
     const allowed=await active.flush()
     if(lifetime.current.signal.aborted||editor.current!==active)return
     if(allowed){action();return}
@@ -809,9 +803,7 @@ export function ReadingPane(props: ReadingPaneProps) {
             if(entry)navigate(entry.viewId,entry.after.kind==='details'?entry.after.nodeId:undefined)
             return !!entry
           }
-          if(editor.current?.hasPendingFormula){
-            e.preventDefault();e.stopPropagation();void guard(travel)
-          } else if(travel()){e.preventDefault();e.stopPropagation()}
+          if(travel()){e.preventDefault();e.stopPropagation()}
           return
         }
         if (
@@ -929,22 +921,12 @@ export function ReadingPane(props: ReadingPaneProps) {
         if(e.key==='Escape'&&!leaving){e.preventDefault();e.stopPropagation();setLeaveAction(undefined)}
         if(e.key==='Tab'){const buttons=Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));const i=buttons.indexOf(document.activeElement as HTMLButtonElement);e.preventDefault();buttons[(i+(e.shiftKey?-1:1)+buttons.length)%buttons.length]?.focus()}
       }}>
-        {leavingFormula?<><h3>公式草稿尚未应用</h3><p>你可以返回编辑，或放弃这条公式草稿后继续。</p>
-          <div className="editor-actions">
-            <button className="btn" onClick={()=>{
-              editor.current?.setFormulaDraft(undefined)
-              setLeaveAction(undefined)
-              void guard(leaveAction)
-            }}>放弃公式草稿并继续</button>
-            <button className="btn" ref={leaveCancel} onClick={()=>{setLeaveAction(undefined);root.current?.focus()}}>继续编辑公式</button>
-          </div>
-        </>:<><h3>修改尚未保存</h3><p>{saveError||'当前副本已保留。'}</p>
+        <h3>修改尚未保存</h3><p>{saveError||'当前副本已保留。'}</p>
         <div className="editor-actions">
           <button className="btn" disabled={leaving} onClick={()=>{setLeaving(true);void (async()=>{try{if(await editor.current?.flush()){setLeaveAction(undefined);leaveAction()}}finally{setLeaving(false)}})()}}>重试保存并继续</button>
           <button className="btn" disabled={leaving} onClick={()=>{setLeaving(true);void (async()=>{try{if(await discardChanges()){setLeaveAction(undefined);leaveAction()}}finally{setLeaving(false)}})()}}>放弃修改并继续</button>
           <button className="btn" ref={leaveCancel} disabled={leaving} onClick={()=>{setLeaveAction(undefined);root.current?.focus()}}>保留并取消离开</button>
         </div>
-        </>}
       </section></div>}
       {(error || watchError) && (
         <div className="status-region" role="status">
@@ -1085,6 +1067,7 @@ export function ReadingPane(props: ReadingPaneProps) {
             key={`${view?.id}/${node.id}`}
             snapshot={snapshot}
             editSession={props.offline?undefined:editor.current}
+            bodyEditor={props.offline?undefined:props.bodyEditor}
             viewId={view?.id}
             node={node}
             width={inspectorWidth}

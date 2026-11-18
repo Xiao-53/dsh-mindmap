@@ -4,6 +4,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { atlasRemote } from '../shared/rpc.ts'
 import { createReferenceSource } from './reference-source.ts'
 import { registerSidebar, ATLAS_KIND } from './register-sidebar.tsx'
+import { MarkdownNoteEditor } from './components/MarkdownNoteEditor.tsx'
 declare const __NOTE_MATH_CSS__: string
 import atlasCss from './styles/atlas.css'
 import prototypeCss from './styles/prototype.css'
@@ -44,6 +45,6 @@ function registerClient(ctx: Context): void {
       }),
     ),
   )
-  registerSidebar(ctx)
+  registerSidebar(ctx, MarkdownNoteEditor)
   registerCompletedMapNavigation(ctx)
 }
