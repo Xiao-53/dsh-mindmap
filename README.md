@@ -21,7 +21,7 @@
 
 ## 环境要求
 
-- DSH `0.2.2-rc.3`，使用原生侧栏，无需 Better Sidebar。
+- DSH `0.2.2-alpha.3` ~ `0.2.x`（已于 `0.2.2-rc.3`、`0.2.2-rc.5` 验证），使用原生侧栏，无需 Better Sidebar。
 
 ## 安装
 
@@ -52,7 +52,7 @@
 
 ## 当前状态
 
-当前版本为 **0.4.2**，已通过用户人工验收。查看 [v0.4.2 发布与安装包](https://github.com/Xiao-53/dsh-mindmap/releases/tag/v0.4.2)。
+当前版本为 **0.4.3**，已通过用户人工验收。查看 [v0.4.3 发布与安装包](https://github.com/Xiao-53/dsh-mindmap/releases/tag/v0.4.3)。
 
 ## 许可证
 

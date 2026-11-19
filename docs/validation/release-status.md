@@ -1,3 +1,23 @@
+# 正式版本 v0.4.3
+
+2026-11-19，用户确认 `0.4.3-preview.2` 在 DSH Desktop `0.2.2-rc.5` 上启动及打开正常，同意发布 `v0.4.3`。该版本将 `engines.dsh` 与 DSH 宿主接口 `peerDependencies` 范围调整为 `>=0.2.2-alpha.3 <0.3.0-0`，并将 `@deepseek-ai/*` 宿主/客户端共享包从 `dependencies` 移至 `peerDependencies` 与 `devDependencies`（`@deepseek-ai/dsh-util-workspace-path` 随客户端打包，移至 `devDependencies`），避免将旧版 `dsh-tools` / `dsh-skill` 写入用户 profile 的 `node_modules` 导致 DSH 升级后启动冲突。
+
+正式安装包已从锁定依赖重建，通过 Host 和 Client 类型检查与本地构建打包。`dsh-mindmap-0.4.3.tgz` SHA-256 为 `D461C5E3FB7CE28634E62A606C2FE1BFD8CC58FF8F08A45D130FA74E46ED4B76`，`xiao-53-dsh-mindmap-0.4.3.tgz` SHA-256 为 `3AD14AF20474A54D06B138D649503318930725630B160880EFCEDAB3E50A532C`。
+
+[GitHub Release 与安装包](https://github.com/Xiao-53/dsh-mindmap/releases/tag/v0.4.3)
+
+# 开发候选 0.4.3-preview.2
+
+将 5 个 `@deepseek-ai/*` 包移出 `dependencies`（宿主/客户端共享包转入 `peerDependencies` + `devDependencies`，`dsh-util-workspace-path` 仅保留在 `devDependencies`），清除 profile `node_modules/@deepseek-ai` 中的旧版本覆盖问题；类型检查、构建、打包及 DSH Desktop `0.2.2-rc.5` 打开验证通过。
+
+[本地安装包](../../dsh-mindmap-0.4.3-preview.2.tgz)
+
+# 开发候选 0.4.3-preview.1
+
+将 `engines.dsh` 与相关依赖版本范围由精确 `0.2.2-rc.3` 放宽为 `>=0.2.2-alpha.3 <0.3.0-0`。类型检查、构建与打包通过。
+
+[本地安装包](../../dsh-mindmap-0.4.3-preview.1.tgz)
+
 # 正式版本 v0.4.2
 
 2026-11-18，用户确认最新 `0.4.2-preview.2` 人工验收通过，同意发布 `v0.4.2`。该版本优化了导图管理页面：支持将导图直接拖动到指定导图下方或上方落位并手动排序、支持单层文件夹手动排序且禁止文件夹嵌套、修复展开文件夹内拖动冒泡回根目录的问题，以及支持排序结果跨刷新/增删/还原持久保留。
