@@ -160,3 +160,11 @@ library.json在原schemaVersion:1下增加可选字段：deletedMapTitles为mapI
 `library.json` 继续沿用 `schemaVersion: 1`，新增可选字段 `rootMapOrder`（根目录导图 ID 数组）与 `folderMapOrders`（`folderId -> 导图 ID 数组` 映射），分别记录根目录和各文件夹内部的导图展示顺序；文件夹排序直接沿用 `folders` 数组顺序。`folderMapOrders` 的键必须指向已有文件夹，各排序列表内部禁止重复 ID，且同一 `mapId` 不得同时出现在多个排序列表中。
 
 管理页强制单层文件夹（新建及文件夹重排统一写 `parentId: null`，不嵌套文件夹；schema 保留 `parentId` 校验以兼容历史索引）。未收录在排序列表中的新增或还原导图按原目录先后追加至对应层级末尾；删除导图（移入回收站）或永久删除同步从排序列表移除该 ID（保留 `mapFolders` 供还原使用），删除文件夹时将其导图按原文件夹顺序追加至根目录末尾（若已有排序）。详见 [008 数据模型](../specs/008-library-drag-sort/data-model.md)。
+
+## 009 可靠性加固与存储生命周期增量
+
+`library.json`（沿用 `schemaVersion: 1`）新增可选字段 `retiredCreateIds`（已清理作废的创建占位 ID 列表，元素唯一且符合 `idSchema`）。当通过 `compactRetired` 压实已完结的创建作废目录（`.transactions/discarded-create.json`）或已完结的永久删除目录（`.transactions/purge.json` `state: "completed"` 且无未知文件）时，必须严格遵守先条件更新 `library.json`（将作废创建写入 `retiredCreateIds`、已删除导图并入 `purgedMapIds`）、再通过 `ctx.fs.deleteFile` 条件删除对应事务标记文件的两阶段顺序；`atlas_create` 与目录列举会依据 `retiredCreateIds` 与 `purgedMapIds` 拒绝旧 `operationId` 复活并静默忽略已压实空壳目录。因 DSH `ctx.fs` 沙箱接口未提供目录删除原语，空壳目录由插件跳过并通过 `capacity`（预警阈值 500）提示按需压实标记文件。
+
+编辑会话产生的孤立 `.image.json` 在活动 `EditSession` 期间继续保留于磁盘以支持 `Ctrl/Cmd+Z` 撤销恢复；当编辑会话在无未保存变更且干净状态下脱离（`detach`），或由用户在阅读页保存状态弹层中手动触发“清理未引用图片”时，插件通过 `cleanupOrphanAssets` 重新扫描全图正文引用并逐项校验后条件删除未引用的 `.image.json` 资产。
+
+本地附件收敛为仅支持图片资源（`png`、`jpg`、`jpeg`、`gif`、`webp` 与 `.image.json`），`readSnapshot` 不再读取或内联 `.pdf` / `.txt` 等非图片本地附件；笔记渲染器将非 `safeHref`（非网络或锚点）的本地链接渲染为只读提示“（仅支持网络链接与本地图片）”。单图已内联图片资源总字节上限为 `20 MiB`，超出时只读阅读路径通过 `resource_too_large` 诊断安全降级（`writable: false`、空 `fingerprint`），提交校验路径拒绝超出预算的候选。

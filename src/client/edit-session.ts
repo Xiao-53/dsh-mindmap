@@ -5,8 +5,54 @@ import { imageUrl } from '../shared/image-resource.ts'
 import { digest, canonicalJson } from '../shared/fingerprint.ts'
 import { manualPlotDelta } from '../shared/note-markdown.ts'
 import { fillLayout } from '../shared/layout.ts'
+import { sameWorkspaceKey, workspaceComparisonKey } from '../shared/workspace-path.ts'
 import type { HostAdapter } from './host-adapter.ts'
 import { EditHistory, type HistoryValue } from './edit-history.ts'
+
+function resolveAssetPath(mapId: string, notePath: string | undefined, href: string): string | undefined {
+  try {
+    const clean = decodeURIComponent(href.split(/[?#]/)[0]).replaceAll('\\', '/')
+    const dir = notePath ? notePath.replaceAll('\\', '/').split('/').slice(0, -1) : []
+    const stack: string[] = []
+    for (const part of dir.concat(clean.split('/'))) {
+      if (!part || part === '.') continue
+      if (part === '..') {
+        if (!stack.length) return undefined
+        stack.pop()
+      } else stack.push(part)
+    }
+    const rel = stack.join('/')
+    return rel.startsWith('assets/') ? `dsh-knowledge-maps/${mapId}/${rel}` : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function preserveResources(previous: MapSnapshot, next: MapSnapshot, newlyCommitted?: Readonly<Record<string, string>>): Record<string, string> {
+  const sameMap = previous.map.id === next.map.id && sameWorkspaceKey(previous.workspaceKey, next.workspaceKey)
+  if (!sameMap) return { ...next.resources }
+  const merged: Record<string, string> = Object.create(null)
+  const oldDigests = new Map(previous.files.map(f => [f.path, f.digest]))
+  const newDigests = new Map(next.files.map(f => [f.path, f.digest]))
+  const notePathOf = new Map(next.map.nodes.map(n => [n.id, n.notePath]))
+  for (const [key, url] of Object.entries(previous.resources)) {
+    const sep = key.indexOf(':')
+    if (sep <= 0) continue
+    const path = resolveAssetPath(next.map.id, notePathOf.get(key.slice(0, sep)), key.slice(sep + 1))
+    if (!next.files.length || (path && oldDigests.get(path) && oldDigests.get(path) === newDigests.get(path)))
+      merged[key] = url
+  }
+  if (newlyCommitted) {
+    for (const [key, url] of Object.entries(newlyCommitted)) {
+      const sep = key.indexOf(':')
+      if (sep <= 0 || merged[key]) continue
+      const path = resolveAssetPath(next.map.id, notePathOf.get(key.slice(0, sep)), key.slice(sep + 1))
+      if (!next.files.length || (path && newDigests.has(path)))
+        merged[key] = url
+    }
+  }
+  return { ...merged, ...next.resources }
+}
 
 const equal = (a: unknown, b: unknown) => canonicalJson(a) === canonicalJson(b)
 const normalized = (v: ViewLayout): ViewLayout => ({ viewId:v.viewId, mode:v.mode??'vertical', nodes:v.nodes, groups:v.groups })
@@ -35,11 +81,14 @@ export class EditSession {
   private refreshAfterSave = false
   private disposed = false
   private detached = false
+  private hadImageEdits = false
+  readonly sessionKey: string
 
   host: HostAdapter
 
-  constructor(host: HostAdapter, snapshot: MapSnapshot) {
+  constructor(host: HostAdapter, snapshot: MapSnapshot, sessionKey = '') {
     this.host = host
+    this.sessionKey = sessionKey
     this.baseline = snapshot
     this.working = snapshot
     this.notePaths.clear()
@@ -92,6 +141,14 @@ export class EditSession {
     this.record(edit, viewId)
     return true
   }
+  mergeResources(extra: Readonly<Record<string, string>>) {
+    const entries = Object.entries(extra).filter(([key, value]) => this.baseline.resources[key] !== value || this.working.resources[key] !== value)
+    if (!entries.length) return
+    const patch = Object.fromEntries(entries)
+    this.baseline = { ...this.baseline, resources: { ...this.baseline.resources, ...patch } }
+    this.working = { ...this.working, resources: { ...this.working.resources, ...patch } }
+    this.emit()
+  }
   notePath(nodeId: string) { return this.working.map.nodes.find(n=>n.id===nodeId)?.notePath ?? this.notePaths.get(nodeId) ?? `notes/${nodeId}.md` }
   previewResources(nodeId: string) {
     const resources = { ...this.working.resources }
@@ -126,6 +183,9 @@ export class EditSession {
     }
     if (equal(before, edit)) return
     if (before.kind === 'layout' && !this.origins.has(viewId)) this.origins.set(viewId, structuredClone(before.layout))
+    if (edit.kind === 'details' && (edit.markdown.includes('.image.json') || this.working.notes[edit.nodeId]?.includes('.image.json') || this.pool.size > 0)) {
+      this.hadImageEdits = true
+    }
     this.localRevision++
     let historyBefore:HistoryValue=before, historyAfter:HistoryValue=edit
     if(kind==='move' && before.kind==='layout' && edit.kind==='layout') {
@@ -163,8 +223,9 @@ export class EditSession {
       this.emit()
       return
     }
-    this.baseline = snapshot
-    this.working = snapshot
+    const hydrated = { ...snapshot, resources: preserveResources(this.baseline, snapshot) }
+    this.baseline = hydrated
+    this.working = hydrated
     this.notePaths.clear()
     for(const node of snapshot.map.nodes)if(node.notePath)this.notePaths.set(node.id,node.notePath)
     this.history.clear()
@@ -194,8 +255,9 @@ export class EditSession {
     if (this.flight || this.pending) return false
     clearTimeout(this.timer)
     this.draft = undefined
-    this.baseline = snapshot
-    this.working = snapshot
+    const hydrated = { ...snapshot, resources: preserveResources(this.baseline, snapshot) }
+    this.baseline = hydrated
+    this.working = hydrated
     this.notePaths.clear()
     for(const node of snapshot.map.nodes)if(node.notePath)this.notePaths.set(node.id,node.notePath)
     this.pool.clear()
@@ -224,11 +286,18 @@ export class EditSession {
     }
   }
   private acceptReceipt(snapshot: MapSnapshot) {
-    this.baseline = snapshot
+    const mergedResources = preserveResources(this.baseline, snapshot, this.working.resources)
+    this.baseline = { ...snapshot, resources: mergedResources }
     for(const node of snapshot.map.nodes)if(node.notePath)this.notePaths.set(node.id,node.notePath)
+    const assetPrefix = `dsh-knowledge-maps/${snapshot.map.id}/assets/`
+    for (const id of [...this.pool.keys()]) {
+      if (snapshot.files.some(f => f.path === `${assetPrefix}${id}.image.json`)) {
+        this.pool.delete(id)
+      }
+    }
     this.working = {
       ...this.working, files: snapshot.files, fingerprint: snapshot.fingerprint,
-      resources: { ...snapshot.resources, ...this.working.resources },
+      resources: { ...mergedResources, ...this.working.resources },
       map: { ...this.working.map, nodes: this.working.map.nodes.map(n => ({ ...n, notePath: snapshot.map.nodes.find(b => b.id === n.id)?.notePath })) },
     }
     this.persistedRevision = this.inFlightRevision ?? this.persistedRevision
@@ -307,17 +376,54 @@ export class EditSession {
     this.finishInput()
     this.history.clear()
     this.detached = true
-    void this.save()
+    void this.save().finally(() => {
+      if (!this.detached || this.disposed || this.dirty || this.uncertain || this.status !== 'clean') return
+      if (this.hadImageEdits && this.host.cleanupOrphanAssets && this.baseline.writable !== false) {
+        this.hadImageEdits = false
+        void this.host.cleanupOrphanAssets(
+          this.baseline.map.id,
+          this.baseline.fingerprint,
+          this.baseline.workspaceKey,
+          new AbortController().signal,
+        ).catch(() => {})
+      }
+      this.dispose()
+      if (this.sessionKey) sessions.delete(this.sessionKey)
+    })
   }
   dispose() { this.disposed = true; clearTimeout(this.timer); this.listeners.clear(); this.history.clear() }
+  get isDetached() { return this.detached }
 }
+const MAX_DETACHED_CLEAN_SESSIONS = 16
 const sessions = new Map<string, EditSession>()
 export function closeEditSessions(sessionId:string) { for(const [key,s] of sessions)if(JSON.parse(key)[0]===sessionId)s.detach() }
 export function disposeEditSessions() { for (const s of sessions.values()) s.dispose(); sessions.clear() }
+export function dropEditSession(workspaceKey: string, mapId: string) {
+  const targetWs = workspaceComparisonKey(workspaceKey)
+  for (const [key, s] of sessions) {
+    const [, wsKey, id] = JSON.parse(key) as [string, string, string]
+    if (wsKey === targetWs && id === mapId) {
+      s.dispose()
+      sessions.delete(key)
+    }
+  }
+}
+function pruneDetachedSessions() {
+  const detachedClean = [...sessions.entries()].filter(([, s]) => s.isDetached && !s.dirty && !s.uncertain && s.status === 'clean')
+  while (detachedClean.length > MAX_DETACHED_CLEAN_SESSIONS) {
+    const [key, old] = detachedClean.shift()!
+    old.dispose()
+    sessions.delete(key)
+  }
+}
 export function editSession(sessionId: string, host: HostAdapter, snapshot: MapSnapshot) {
-  const key = JSON.stringify([sessionId, snapshot.workspaceKey, snapshot.map.id])
+  const key = JSON.stringify([sessionId, workspaceComparisonKey(snapshot.workspaceKey), snapshot.map.id])
   let s = sessions.get(key)
-  if (!s) { s = new EditSession(host, snapshot); sessions.set(key, s) }
+  if (!s) {
+    s = new EditSession(host, snapshot, key)
+    sessions.set(key, s)
+    pruneDetachedSessions()
+  }
   else { s.host = host; s.attach(snapshot) }
   return s
 }

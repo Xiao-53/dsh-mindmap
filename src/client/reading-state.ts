@@ -1,5 +1,6 @@
 import type { KnowledgeMap } from '../shared/map-types.ts'
 import type { PendingInsertion } from './insert-reference.ts'
+import { workspaceComparisonKey } from '../shared/workspace-path.ts'
 export interface Camera {
   x: number
   y: number
@@ -33,7 +34,7 @@ export interface ReadingStore {
   pending: Record<string, PendingInsertion | undefined>
 }
 export const readingKey = (workspace: string, map: string) =>
-  JSON.stringify([workspace, map])
+  JSON.stringify([workspaceComparisonKey(workspace), map])
 export function initialReading(
   workspaceKey: string,
   sessionId: string,
@@ -64,7 +65,7 @@ export function reconcileReading(
       viewId: viewRemoved ? map.rootViewId : state.viewId,
       selectedNodeId: viewRemoved || nodeRemoved ? undefined : state.selectedNodeId,
       detailScroll: viewRemoved || nodeRemoved ? 0 : state.detailScroll,
-      history,
+      ...(history ? { history } : {}),
     },
     notice:
       viewRemoved || nodeRemoved

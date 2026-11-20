@@ -53,7 +53,7 @@ test('完整复制保留公式换行与示例，复制失败不触发其他动�
     '',
     '## 学习提醒\n先写的提醒\n\n## 核心理解\n后写的理解',
   )
-  assert.ok(ordered.indexOf('核心理解') < ordered.indexOf('学习提醒'))
+  assert.ok(ordered.indexOf('学习提醒') < ordered.indexOf('核心理解'))
   let copied = ''
   assert.equal(
     (

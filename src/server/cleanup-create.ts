@@ -4,12 +4,14 @@ import type { WorkspaceFileScope } from '@deepseek-ai/dsh-api-workspace-files'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import { AtlasError, createHostFiles, inspectCreatePlaceholder } from './map-files.ts'
 import { transactionPort } from './tools/storage.ts'
+import { sameWorkspaceKey } from '../shared/workspace-path.ts'
+import { evictEditMemory } from './edit-service.ts'
 
 // UI与DSH共用；调用方必须已取得用户的清理意图，并持有本图的会话队列。
 export async function cleanupCreate(ctx: Context, scope: WorkspaceFileScope, mapId: string, operationId: string, policy: SandboxExecutionPolicy, signal: AbortSignal) {
   signal.throwIfAborted()
   if (policy.mode === 'read-only') throw new AtlasError('permission_denied', '只读会话不能清理创建记录')
-  if (policy.workspaceRoot !== scope.workspaceRoot) throw new AtlasError('workspace_changed', '清理工作区已变化')
+  if (!sameWorkspaceKey(policy.workspaceRoot, scope.workspaceRoot)) throw new AtlasError('workspace_changed', '清理工作区已变化')
   // 作废标记落盘后继续完成清理，取消请求不能让旧请求重新生效。
   const files = createHostFiles(ctx, scope, new AbortController().signal, policy)
   const metadata = transactionPort(ctx, scope, mapId, policy)
@@ -35,6 +37,7 @@ export async function cleanupCreate(ctx: Context, scope: WorkspaceFileScope, map
     }
     const after = await inspectCreatePlaceholder(files, mapId, lockText)
     if (after?.state !== 'discarded') throw new AtlasError('cleanup_incomplete', '请求已作废，发现额外内容或状态变化，保留现场')
+    evictEditMemory(scope.workspaceRoot, mapId)
     return {status:'success',mapId,operationId,summary:'未完成创建已清理，旧请求已作废'}
   } finally {
     const lock = await metadata.read('.transactions/active.json')

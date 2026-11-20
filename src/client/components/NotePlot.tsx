@@ -3,8 +3,10 @@ import { JSXGraph, type Board } from 'jsxgraph'
 import { plotExpressionTex, plotFraction, plotInterpolate, samplePlot, type PlotPoint, type PlotRange } from '../../shared/plot-expression.ts'
 import { type PlotData, type PlotToken } from '../../shared/note-plot.ts'
 import { mathMarkup } from '../note-math.ts'
+import { useAtlasThemeContext } from '../theme.ts'
 
-const colors = ['#39668e', '#ab5365', '#437d62']
+const lightColors = ['#39668e', '#ab5365', '#437d62']
+const darkColors = ['#73ace0', '#e08093', '#6bc298']
 const dashes = [0, 2, 4] as const
 const shapes = ['circle', 'square', 'diamond'] as const
 const fixed = { fixed: true, highlight: false, withLabel: false }
@@ -14,11 +16,15 @@ const labelNumber = (value: number) => {
     ? String(Number(value.toPrecision(4))) : value.toExponential(1)
 }
 
-function drawPlot(board: Board, plot: PlotData, expressions: NonNullable<PlotToken['expressions']>): boolean {
+function drawPlot(board: Board, plot: PlotData, expressions: NonNullable<PlotToken['expressions']>, dark: boolean): boolean {
+  const colors = dark ? darkColors : lightColors
+  const gridColor = dark ? '#2e3946' : '#e0e6ee'
+  const axisColor = dark ? '#6f8096' : '#778395'
+  const labelColor = dark ? '#9fb0c4' : '#596575'
   const segment = (a: [number, number], b: [number, number], strokeColor: string, strokeWidth = 1) =>
     board.create('segment', [a, b], { ...fixed, strokeColor, strokeWidth, point1: { visible: false }, point2: { visible: false } })
   const label = (x: number, y: number, value: string, anchorX: 'right' | 'middle') =>
-    board.create('text', [x, y, value], { ...fixed, anchorX, fontSize: 10, strokeColor: '#596575', display: 'internal', parse: false })
+    board.create('text', [x, y, value], { ...fixed, anchorX, fontSize: 10, strokeColor: labelColor, display: 'internal', parse: false })
   const drawLine = (pieces: readonly PlotPoint[][], series: number, showPoints = false) => {
     const x: number[] = [], y: number[] = []
     const points: [number, number][] = []
@@ -41,15 +47,15 @@ function drawPlot(board: Board, plot: PlotData, expressions: NonNullable<PlotTok
     const xAxis = xRange || plot.kind === 'bar' ? axisPosition(yRange) : 0
     for (let i = 0; i <= 4; i++) {
       const t = i / 4
-      segment([0, t], [1, t], '#e0e6ee')
+      segment([0, t], [1, t], gridColor)
       label(-0.024, t, labelNumber(plotInterpolate(...yRange, t)), 'right')
       if (xRange) {
-        segment([t, 0], [t, 1], '#e0e6ee')
+        segment([t, 0], [t, 1], gridColor)
         label(t, -0.074, labelNumber(plotInterpolate(...xRange, t)), 'middle')
       }
     }
-    segment([yAxis, 0], [yAxis, 1], '#778395', 1.35)
-    segment([0, xAxis], [1, xAxis], '#778395', 1.35)
+    segment([yAxis, 0], [yAxis, 1], axisColor, 1.35)
+    segment([0, xAxis], [1, xAxis], axisColor, 1.35)
     if (xRange) {
       label(1.035, xAxis, 'x', 'middle')
       label(yAxis, 1.052, 'y', 'middle')
@@ -110,7 +116,7 @@ function drawPlot(board: Board, plot: PlotData, expressions: NonNullable<PlotTok
   return values.length > 0
 }
 
-function PlotSurface({ token }: { token: PlotToken }) {
+function PlotSurface({ token, dark }: { token: PlotToken; dark: boolean }) {
   const host = useRef<HTMLDivElement>(null)
   const [message, setMessage] = useState('')
   const plot = token.data!
@@ -142,7 +148,7 @@ function PlotSurface({ token }: { token: PlotToken }) {
             resize: { enabled: false, throttle: 0 },
           })
           board.suspendUpdate()
-          const hasPoints = drawPlot(board, plot, token.expressions ?? [])
+          const hasPoints = drawPlot(board, plot, token.expressions ?? [], dark)
           board.unsuspendUpdate()
           setMessage(hasPoints ? '' : plot.kind === 'function' ? '此范围内没有可绘制的点' : '此图暂无可绘制的数据')
         }
@@ -162,7 +168,7 @@ function PlotSurface({ token }: { token: PlotToken }) {
     intersection?.observe(element)
     refresh()
     return () => { resize?.disconnect(); intersection?.disconnect(); dispose() }
-  }, [plot, token.expressions])
+  }, [plot, token.expressions, dark])
   const labels = plot.kind === 'function' ? [] : plot.categories
   const step = Math.ceil(labels.length / 6)
   return <>
@@ -181,6 +187,8 @@ function PlotSurface({ token }: { token: PlotToken }) {
 type PlotControls = { remove: () => void; startDrag: (event: DragEvent<HTMLButtonElement>) => void; endDrag: () => void }
 
 export function NotePlot({ token, onReference, controls }: { token: PlotToken; onReference?: (data: PlotData) => void; controls?: PlotControls }) {
+  const { dark } = useAtlasThemeContext()
+  const colors = dark ? darkColors : lightColors
   const root = useRef<HTMLElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const [menu, setMenu] = useState(false)
@@ -209,7 +217,7 @@ export function NotePlot({ token, onReference, controls }: { token: PlotToken; o
       }
     } : undefined}>
     <figcaption>{title}</figcaption>
-    <PlotSurface token={token}/>
+    <PlotSurface token={token} dark={dark}/>
     <ul className="note-plot-legend">
       {data.kind === 'function' ? data.series.map((item, i) => {
         const formula = token.expressions?.[i]

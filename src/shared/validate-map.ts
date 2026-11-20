@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { categories, icons } from './map-types.ts'
 import type { KnowledgeMap, Validation, Diagnostic } from './map-types.ts'
+import { normalizeNotePathKey } from './workspace-path.ts'
 export const idSchema = z
   .string()
   .regex(/^[A-Za-z0-9_-]+$/, '身份只能包含字母、数字、下划线或短横线')
@@ -107,7 +108,7 @@ export function validateMap(
   const paths = new Set<string>()
   for (const n of map.nodes) {
     if (n.notePath) {
-      const p = n.notePath.replaceAll('\\', '/').toLowerCase()
+      const p = normalizeNotePathKey(n.notePath)
       if (paths.has(p))
         fail(`nodes.${n.id}.notePath`, '一份笔记不能属于不同节点')
       paths.add(p)

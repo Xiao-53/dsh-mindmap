@@ -11,6 +11,8 @@ import {
   reorderFolders,
   restoreMapsInLibrary,
 } from '../../shared/library-order.ts'
+import { useAtlasThemeContext } from '../theme.ts'
+import { ToolIcon } from './ToolIcon.tsx'
 
 type Form = { kind: 'folder' | 'rename-folder' | 'rename-map'; id?: string; title: string }
 type Entry = { kind: 'map' | 'folder'; id: string }
@@ -29,13 +31,14 @@ function pointerPosition(event: DragEvent, element: HTMLElement): 'before' | 'af
   return event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
 }
 
-export function MapLibrary({ listing, loading, error, refresh, open, rename, save, purge, cleanupCreate, trash, setTrash }: {
+export function MapLibrary({ listing, loading, error, refresh, open, rename, save, purge, cleanupCreate, compactRetired, trash, setTrash }: {
   listing: MapListing; loading: boolean; error: string
   refresh: () => void; open: (id: string) => void
   rename: (id: string, title: string, previousTitle: string) => Promise<void>
   save: (data: Library) => Promise<void>
   purge: (ids: string[]) => Promise<void>
   cleanupCreate: (mapId: string, operationId: string) => Promise<void>
+  compactRetired?: () => Promise<void>
   trash: boolean; setTrash: (trash: boolean) => void
 }) {
   const [query, setQuery] = useState('')
@@ -56,6 +59,7 @@ export function MapLibrary({ listing, loading, error, refresh, open, rename, sav
   const dragEntriesRef = useRef<Entry[]>([])
   const page = useRef<HTMLDivElement>(null)
   const menuTrigger = useRef<HTMLButtonElement | null>(null)
+  const theme = useAtlasThemeContext()
 
   const data = listing.library?.data ?? emptyLibrary()
   const deleted = new Set(data.deletedMapIds ?? [])
@@ -231,6 +235,13 @@ export function MapLibrary({ listing, loading, error, refresh, open, rename, sav
     },
   })
 
+  const folderDropPosition = (event: DragEvent, element: HTMLElement, folderIds: string[], targetFolderId: string): 'before' | 'after' => {
+    if (element.getBoundingClientRect().height > 0) return pointerPosition(event, element)
+    const targetIndex = orderedFolders.findIndex(f => f.id === targetFolderId)
+    const sourceIndex = orderedFolders.findIndex(f => f.id === folderIds[0])
+    return sourceIndex >= 0 && targetIndex >= 0 && sourceIndex > targetIndex ? 'before' : 'after'
+  }
+
   const folderLineDropProps = (folderId: string) => ({
     onDragOver: (e: DragEvent<HTMLElement>) => {
       if (!canDrag || !hasLibraryDrag(e)) return
@@ -238,7 +249,7 @@ export function MapLibrary({ listing, loading, error, refresh, open, rename, sav
       const entries = resolveDragEntries(e)
       const folderIds = entries.filter(x => x.kind === 'folder').map(x => x.id)
       if (folderIds.length > 0) {
-        const position = pointerPosition(e, e.currentTarget)
+        const position = folderDropPosition(e, e.currentTarget, folderIds, folderId)
         const candidate: DropIndicator = { kind: 'folder-insert', targetFolderId: folderId, position }
         if (!reorderFolders(data, folderIds, candidate).changed) {
           e.dataTransfer.dropEffect = 'none'; setDropIndicator(undefined); return
@@ -257,10 +268,10 @@ export function MapLibrary({ listing, loading, error, refresh, open, rename, sav
     onDrop: (e: DragEvent<HTMLElement>) => {
       e.preventDefault(); e.stopPropagation()
       const entries = resolveDragEntries(e)
-      const position = pointerPosition(e, e.currentTarget)
+      const folderIds = entries.filter(x => x.kind === 'folder').map(x => x.id)
+      const position = folderDropPosition(e, e.currentTarget, folderIds, folderId)
       clearDrag()
       if (!canDrag || !entries.length) return
-      const folderIds = entries.filter(x => x.kind === 'folder').map(x => x.id)
       if (folderIds.length > 0) {
         commitFolderDrop(entries, { kind: 'folder-insert', targetFolderId: folderId, position })
         return
@@ -391,17 +402,28 @@ export function MapLibrary({ listing, loading, error, refresh, open, rename, sav
     </ul>
   }
 
-  return <div ref={page} className="dsh-atlas library-page" aria-busy={loading || busy} onKeyDown={e => { if (e.key === 'Escape') { clearDrag(); if (menu || form) { setMenu(undefined); menuTrigger.current?.focus(); if (!busy) setForm(undefined) } else if (query) { e.preventDefault(); setQuery('') } } }}>
-    <header className="library-header"><div className="library-brand"><LibraryGlyph /><h1>思维导图</h1></div><button className="library-trash-toggle" title={trash ? '返回全部导图' : `回收站（${trashMaps.length}）`} aria-label={trash ? '返回全部导图' : '回收站'} aria-pressed={trash} disabled={busy} onClick={() => setTrash(!trash)}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7" /></svg></button></header>
+  return <div ref={page} className="dsh-atlas library-page" data-atlas-theme={theme.theme} aria-busy={loading || busy} onKeyDown={e => { if (e.key === 'Escape') { clearDrag(); if (menu || form) { setMenu(undefined); menuTrigger.current?.focus(); if (!busy) setForm(undefined) } else if (query) { e.preventDefault(); setQuery('') } } }}>
+    <header className="library-header"><div className="library-brand"><LibraryGlyph /><h1>思维导图</h1></div><div className="library-header-actions"><button type="button" className="library-trash-toggle" title={theme.dark ? '切换浅色模式' : '切换深色模式'} aria-label={theme.dark ? '切换浅色模式' : '切换深色模式'} onClick={theme.toggle}><ToolIcon name={theme.dark ? 'sun' : 'moon'} /></button><button className="library-trash-toggle" title={trash ? '返回全部导图' : `回收站（${trashMaps.length}）`} aria-label={trash ? '返回全部导图' : '回收站'} aria-pressed={trash} disabled={busy} onClick={() => setTrash(!trash)}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7" /></svg></button></div></header>
     <div className="library-scroll">
       <label className="library-search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></svg><input type="search" aria-label={trash && showIncomplete ? '搜索未完成创建' : trash ? '搜索回收站' : '搜索导图或文件夹'} placeholder={trash && showIncomplete ? '搜索未完成创建…' : trash ? '搜索回收站…' : '搜索导图或文件夹…'} value={query} disabled={busy} onChange={e => setQuery(e.target.value)} /></label>
       {(error || failure) && <div className="status-region" role="alert">{error || failure}<br /><button className="library-text-button" disabled={busy} onClick={refresh}>重新载入</button></div>}
+      {listing.capacity && listing.capacity.directoryCount >= listing.capacity.warningThreshold && (
+        <div className="library-notice" role="status">
+          当前目录共有 {listing.capacity.directoryCount} 项，接近宿主 2000 项建议上限{listing.capacity.retiredCount > 0 ? `（含 ${listing.capacity.retiredCount} 项已完结历史记录）` : ''}。
+          {compactRetired && listing.capacity.retiredCount > 0 && (
+            <button type="button" className="library-text-button" disabled={disabled} onClick={() => { void run(compactRetired, '已清理已完结历史记录') }}>清理已完结历史记录</button>
+          )}
+        </div>
+      )}
       <div className="library-section" onDragLeave={e => { if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget)) setDropIndicator(old => old?.kind === 'root-into' ? undefined : old) }} {...(canDrag ? rootDropProps : {})}><div className="library-section-label">
         {trash ? <button type="button" className="library-scope library-section-tab" aria-pressed={!showIncomplete} disabled={busy} onClick={() => selectTrashSection(false)}>回收站<small>{trashMaps.length}</small></button> : <span className="library-scope">全部导图<small>{activeMaps.length}</small></span>}
         {trash && <button type="button" className="library-subentry" aria-pressed={showIncomplete} disabled={busy} onClick={() => selectTrashSection(true)}>未完成创建<small>{incomplete.length}</small></button>}
       </div>
         <div className="library-section-tools">
           {!trash && <button className="library-text-button" disabled={disabled} onClick={() => begin({ kind: 'folder', title: '' })}>＋ 文件夹</button>}
+          {trash && showIncomplete && (listing.capacity?.retiredCount ?? 0) > 0 && compactRetired && (
+            <button type="button" className="library-text-button" disabled={disabled} onClick={() => { void run(compactRetired, '已清理已完结历史记录') }}>清理已完结历史记录</button>
+          )}
           {!(trash && showIncomplete) && !!available.length && <button className="library-text-button" aria-pressed={selecting} disabled={busy} onClick={() => { setSelecting(!selecting); setSelected(new Set()); setMenu(undefined) }}>{selecting ? '完成' : '选择'}</button>}
           {trash && !showIncomplete && !!trashMaps.length && <div className="library-menu-anchor"><button className="library-more" aria-label="回收站选项" aria-haspopup="menu" aria-expanded={menu === 'trash-all'} disabled={disabled} onClick={e => { menuTrigger.current = e.currentTarget; setMenuAbove(false); setMenu(menu === 'trash-all' ? undefined : 'trash-all') }}>···</button>
             {menu === 'trash-all' && <div className="library-entry-menu" role="menu"><button autoFocus role="menuitem" disabled={!trashMaps.some(m => !purging.has(m.id))} onClick={() => { void restore(trashMaps.map(m => m.id)) }}>全部还原</button><button role="menuitem" className="danger" onClick={() => { void permanentlyRemove(trashMaps.map(m => m.id)) }}>清空回收站</button></div>}

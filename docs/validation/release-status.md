@@ -1,3 +1,11 @@
+# 正式版本 v0.4.4
+
+2026-11-20，用户确认 `0.4.4-preview.1` 人工验收通过，同意发布 `v0.4.4`。该版本新增暗色模式（自动同步 DSH 宿主主题 `body[data-ds-dark-theme]`、离线 HTML 自动适配 `prefers-color-scheme: dark`，并在目录页与阅读页提供快捷明暗切换，覆盖画布节点、连线端口、Markdown 编辑器、KaTeX 公式及 JSXGraph 图表），并包含架构健壮性加固改动。
+
+正式安装包已从锁定依赖重建，通过 Host 和 Client 类型检查与本地构建打包。`dsh-mindmap-0.4.4.tgz` SHA-256 为 `A0F7A2C4C9A938CDC5547DF0F3822AB83BEAF63E4A4F6A94DD5923E063692094`，`xiao-53-dsh-mindmap-0.4.4.tgz` SHA-256 为 `0164D624AA5770FDF61A9257541429EDEC0076E666B77D8459A50BF2EF999B4A`。
+
+[GitHub Release 与安装包](https://github.com/Xiao-53/dsh-mindmap/releases/tag/v0.4.4)
+
 # 正式版本 v0.4.3
 
 2026-11-19，用户确认 `0.4.3-preview.2` 在 DSH Desktop `0.2.2-rc.5` 上启动及打开正常，同意发布 `v0.4.3`。该版本将 `engines.dsh` 与 DSH 宿主接口 `peerDependencies` 范围调整为 `>=0.2.2-alpha.3 <0.3.0-0`，并将 `@deepseek-ai/*` 宿主/客户端共享包从 `dependencies` 移至 `peerDependencies` 与 `devDependencies`（`@deepseek-ai/dsh-util-workspace-path` 随客户端打包，移至 `devDependencies`），避免将旧版 `dsh-tools` / `dsh-skill` 写入用户 profile 的 `node_modules` 导致 DSH 升级后启动冲突。

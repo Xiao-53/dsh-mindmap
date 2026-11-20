@@ -170,6 +170,7 @@ export function moveMapsToTarget(
     ...(library.deletedMapTitles ? { deletedMapTitles: library.deletedMapTitles } : {}),
     ...(library.purgedMapIds ? { purgedMapIds: library.purgedMapIds } : {}),
     ...(library.purgingMapIds ? { purgingMapIds: library.purgingMapIds } : {}),
+    ...(library.retiredCreateIds ? { retiredCreateIds: library.retiredCreateIds } : {}),
   }
   return { library: nextLibrary, changed: true }
 }
@@ -284,6 +285,7 @@ export function removeEntriesFromLibrary(
     deletedMapTitles: nextDeletedMapTitles,
     ...(library.purgedMapIds ? { purgedMapIds: library.purgedMapIds } : {}),
     ...(library.purgingMapIds ? { purgingMapIds: library.purgingMapIds } : {}),
+    ...(library.retiredCreateIds ? { retiredCreateIds: library.retiredCreateIds } : {}),
   }
   return nextLibrary
 }
@@ -308,6 +310,7 @@ export function restoreMapsInLibrary(library: MapLibrary, mapIds: readonly strin
     ...(Object.keys(nextDeletedTitles).length ? { deletedMapTitles: nextDeletedTitles } : {}),
     ...(library.purgedMapIds ? { purgedMapIds: library.purgedMapIds } : {}),
     ...(library.purgingMapIds ? { purgingMapIds: library.purgingMapIds } : {}),
+    ...(library.retiredCreateIds ? { retiredCreateIds: library.retiredCreateIds } : {}),
   }
   return nextLibrary
 }

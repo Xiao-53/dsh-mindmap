@@ -2,12 +2,20 @@ import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode, PointerEvent } from 'react'
 import type { KnowledgeNode, NodeLayout } from '../../shared/map-types.ts'
 import { Icon } from './Icon.tsx'
+const requestFrame = (cb: FrameRequestCallback): number =>
+  typeof requestAnimationFrame === 'function'
+    ? requestAnimationFrame(cb)
+    : Number(setTimeout(() => cb(performance.now()), 16))
+const cancelFrame = (id: number): void => {
+  if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(id)
+  else clearTimeout(id)
+}
 export const palette = {
-  terra: { border: '#e8caba', color: '#a96a4c', wash: '#f8eae0' },
-  sage: { border: '#c6d6c7', color: '#64866d', wash: '#ebf2e9' },
-  blue: { border: '#cad9e2', color: '#5c8298', wash: '#ebf2f5' },
-  plum: { border: '#ddd0de', color: '#927597', wash: '#f3ecf3' },
-  gold: { border: '#e3d5b7', color: '#a18451', wash: '#f7f0df' },
+  terra: { border: 'var(--cat-terra-border, #e8caba)', color: 'var(--cat-terra-color, #a96a4c)', wash: 'var(--cat-terra-wash, #f8eae0)' },
+  sage: { border: 'var(--cat-sage-border, #c6d6c7)', color: 'var(--cat-sage-color, #64866d)', wash: 'var(--cat-sage-wash, #ebf2e9)' },
+  blue: { border: 'var(--cat-blue-border, #cad9e2)', color: 'var(--cat-blue-color, #5c8298)', wash: 'var(--cat-blue-wash, #ebf2f5)' },
+  plum: { border: 'var(--cat-plum-border, #ddd0de)', color: 'var(--cat-plum-color, #927597)', wash: 'var(--cat-plum-wash, #f3ecf3)' },
+  gold: { border: 'var(--cat-gold-border, #e3d5b7)', color: 'var(--cat-gold-color, #a18451)', wash: 'var(--cat-gold-wash, #f7f0df)' },
 }
 export function NodeCard({
   node,
@@ -41,17 +49,17 @@ export function NodeCard({
   const moveHandler = useRef(onMove)
   moveHandler.current = onMove
   const flushMove = () => {
-    cancelAnimationFrame(moveFrame.current); moveFrame.current = 0
+    cancelFrame(moveFrame.current); moveFrame.current = 0
     const point = pendingMove.current; pendingMove.current = undefined
     if (point) moveHandler.current?.(point.x,point.y)
   }
-  useEffect(() => () => cancelAnimationFrame(moveFrame.current), [])
+  useEffect(() => () => cancelFrame(moveFrame.current), [])
   const suppressClickUntil = useRef(0)
   const [dragging, setDragging] = useState(false)
   const stop = (e: PointerEvent<HTMLDivElement>, cancel = false) => {
     const d = drag.current
     if (!d || d.pointer !== e.pointerId) return
-    if (cancel) { cancelAnimationFrame(moveFrame.current); moveFrame.current = 0; pendingMove.current = undefined }
+    if (cancel) { cancelFrame(moveFrame.current); moveFrame.current = 0; pendingMove.current = undefined }
     else {
       if (d.active) pendingMove.current = {x:Math.round(d.ox+(e.clientX-d.x)/d.scale),y:Math.round(d.oy+(e.clientY-d.y)/d.scale)}
       flushMove()
@@ -101,7 +109,7 @@ export function NodeCard({
         if (!d.active && Math.hypot(dx,dy) > 7) { d.active = true; setDragging(true); onDragStart?.() }
         if (d.active) {
           pendingMove.current = {x:Math.round(d.ox+dx/d.scale),y:Math.round(d.oy+dy/d.scale)}
-          if (!moveFrame.current) moveFrame.current = requestAnimationFrame(flushMove)
+          if (!moveFrame.current) moveFrame.current = requestFrame(flushMove)
         }
       }}
       onPointerUp={e => stop(e)}

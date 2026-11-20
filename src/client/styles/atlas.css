@@ -1008,6 +1008,8 @@
 .dsh-atlas .library-search input::placeholder { color: #a3998d; }
 
 .dsh-atlas .library-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dsh-atlas .library-header-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.dsh-atlas .library-header-actions svg { display: block; width: 17px; height: 17px; }
 .dsh-atlas .library-trash-toggle { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; padding: 5px; border: 0; border-radius: 5px; background: transparent; color: #a39c92; cursor: pointer; }
 .dsh-atlas .library-trash-toggle:hover { background: #f1eee7; color: #827d74; }
 .dsh-atlas .library-trash-toggle[aria-pressed=true] { color: #7e9299; }

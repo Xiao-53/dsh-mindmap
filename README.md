@@ -52,7 +52,7 @@
 
 ## 当前状态
 
-当前版本为 **0.4.3**，已通过用户人工验收。查看 [v0.4.3 发布与安装包](https://github.com/Xiao-53/dsh-mindmap/releases/tag/v0.4.3)。
+当前版本为 **0.4.4**，已通过用户人工验收。查看 [v0.4.4 发布与安装包](https://github.com/Xiao-53/dsh-mindmap/releases/tag/v0.4.4)。
 
 ## 许可证
 

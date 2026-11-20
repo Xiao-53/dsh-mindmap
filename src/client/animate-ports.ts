@@ -3,6 +3,14 @@ import { connectionGeometry } from '../shared/edge-geometry.ts'
 import type { createConnections, Port, Rect } from '../shared/edge-geometry.ts'
 
 const DURATION = 180
+const requestFrame = (cb: FrameRequestCallback): number =>
+  typeof requestAnimationFrame === 'function'
+    ? requestAnimationFrame(cb)
+    : Number(setTimeout(() => cb(performance.now()), 16))
+const cancelFrame = (id: number): void => {
+  if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(id)
+  else clearTimeout(id)
+}
 type Connections = ReturnType<typeof createConnections>
 interface Motion { from:number; to:number; start:number }
 const wrap = (value:number) => ((value % 4) + 4) % 4
@@ -31,7 +39,7 @@ export function useAnimatedPorts(target:Connections,nodes:Record<string,Rect>,vi
   const request=useRef(0)
   const edgeIds=useMemo(()=>new Map(target.segments.map(segment=>[segment.source.edgeIndex,segment.relation.id])),[target])
   const key=(port:Port)=>`${edgeIds.get(port.edgeIndex)}:${port.role}:${port.nodeId}`
-  useLayoutEffect(()=>()=>{cancelAnimationFrame(request.current);request.current=0},[])
+  useLayoutEffect(()=>()=>{cancelFrame(request.current);request.current=0},[])
   useLayoutEffect(()=>{
     const now=performance.now()
     if(activeView.current!==viewId) {
@@ -56,9 +64,9 @@ export function useAnimatedPorts(target:Connections,nodes:Record<string,Rect>,vi
     const tick=(time:number)=>{
       request.current=0
       setTime(time)
-      if([...motions.current.values()].some(motion=>motion.from!==motion.to && time-motion.start<DURATION)) request.current=requestAnimationFrame(tick)
+      if([...motions.current.values()].some(motion=>motion.from!==motion.to && time-motion.start<DURATION)) request.current=requestFrame(tick)
     }
-    if(!request.current && [...motions.current.values()].some(motion=>motion.from!==motion.to && now-motion.start<DURATION)) request.current=requestAnimationFrame(tick)
+    if(!request.current && [...motions.current.values()].some(motion=>motion.from!==motion.to && now-motion.start<DURATION)) request.current=requestFrame(tick)
   },[target,nodes,viewId])
   const now=performance.now()
   const ports=target.ports.map(port=>{

@@ -1,6 +1,8 @@
 import { inlineSourcePoints, isFormula, lexNote, noteBlocks, noteImageToken } from '../shared/note-markdown.ts'
 import { isPlot, type PlotToken } from '../shared/note-plot.ts'
-import { safeHref } from './render-note.tsx'
+export function safeHref(href: string): string | undefined {
+  return /^(https?:\/\/|mailto:|#)/i.test(href) ? href : undefined
+}
 import { formulaElement } from './note-math.ts'
 import type { Token, Tokens } from 'marked'
 

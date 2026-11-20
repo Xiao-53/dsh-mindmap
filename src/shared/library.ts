@@ -15,7 +15,10 @@ export const librarySchema = z.strictObject({
   deletedMapTitles: z.record(idSchema, z.string()).optional(),
   purgedMapIds: z.array(idSchema).optional(),
   purgingMapIds: z.array(idSchema).optional(),
+  retiredCreateIds: z.array(idSchema).optional(),
 }).superRefine((library, ctx) => {
+  if (library.retiredCreateIds && new Set(library.retiredCreateIds).size !== library.retiredCreateIds.length)
+    ctx.addIssue({ code: 'custom', message: '作废创建记录存在重复身份' })
   const ids = new Set(library.folders.map(f => f.id))
   const fail = (message: string) => ctx.addIssue({ code: 'custom', message })
   if (ids.size !== library.folders.length) fail('文件夹身份重复')

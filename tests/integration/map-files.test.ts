@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   createHostFiles,
+  readNodeResources,
   readSnapshot,
   listMaps,
   saveLayout,
@@ -141,4 +142,43 @@ test('首期布局写入要求完整对应，禁止改动已有手动坐标', as
     /不能改动/,
   )
   assert.deepEqual((await readSnapshot(port, 'map-a')).layout, initial)
+})
+
+test('非图片本地链接不内联读取且已压实空目录静默忽略并统计容量', async () => {
+  const port = new MemoryFiles()
+  const map = sampleMap()
+  map.nodes[0].notePath = 'notes/a.md'
+  port.put('map.json', JSON.stringify(map))
+  port.put('notes/a.md', '[PDF文档](../assets/doc.pdf)')
+  const snap = await readSnapshot(port, 'map-a')
+  assert.deepEqual({ ...snap.resources }, {})
+  const listed = await listMaps(port, new Set(['unknown']))
+  assert.deepEqual(listed.maps.map(m => m.id), ['map-a'])
+  assert.equal(listed.diagnostics.length, 0)
+  assert.equal(listed.capacity?.directoryCount, 2)
+  assert.equal(listed.capacity?.retiredCount, 1)
+  assert.equal(listed.capacity?.warningThreshold, 500)
+})
+
+test('omitResources 快照保留一致指纹并支持 readNodeResources 按节点懒加载图片', async () => {
+  const port = new MemoryFiles()
+  const map = sampleMap()
+  map.nodes[0].notePath = 'notes/a.md'
+  map.nodes[1].notePath = 'notes/b.md'
+  port.put('map.json', JSON.stringify(map))
+  port.put('notes/a.md', '![A图](../assets/a.png)')
+  port.put('notes/b.md', '![B图](../assets/b.png)')
+  port.put('assets/a.png', 'bytes-a')
+  port.put('assets/b.png', 'bytes-b')
+  const full = await readSnapshot(port, 'map-a', true)
+  const lite = await readSnapshot(port, 'map-a', true, { omitResources: true })
+  assert.equal(lite.fingerprint, full.fingerprint)
+  assert.deepEqual(lite.files, full.files)
+  assert.deepEqual({ ...lite.resources }, {})
+  const onlyA = await readNodeResources(port, 'map-a', ['a'])
+  assert.equal(onlyA.diagnostics.length, 0)
+  assert.equal(onlyA.resources['a:../assets/a.png'], full.resources['a:../assets/a.png'])
+  assert.equal(onlyA.resources['b:../assets/b.png'], undefined)
+  const all = await readNodeResources(port, 'map-a')
+  assert.deepEqual({ ...all.resources }, { ...full.resources })
 })

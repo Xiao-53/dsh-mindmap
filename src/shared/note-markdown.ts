@@ -1,4 +1,4 @@
-import { Marked } from 'marked'
+import { Marked, walkTokens } from 'marked'
 import type { Token, Tokens, TokenizerExtension } from 'marked'
 import { isPlot, parsePlotData, type PlotToken } from './note-plot.ts'
 
@@ -64,13 +64,14 @@ function blockFormula(src: string): FormulaToken | undefined {
 const block: TokenizerExtension = {
   name: 'formulaBlock',
   level: 'block',
-  start: source => /(?:^|\n) {0,3}(?:\$\$|\\\[)/.exec(source)?.index,
+  start: source => (!source.includes('$$') && !source.includes('\\[')) ? undefined : /(?:^|\n) {0,3}(?:\$\$|\\\[)/.exec(source)?.index,
   tokenizer: blockFormula,
 }
 const inline: TokenizerExtension = {
   name: 'formulaInline',
   level: 'inline',
   start: source => {
+    if (!source.includes('$') && !source.includes('\\(')) return
     const match = /[\\$]/.exec(source)
     return match?.index
   },
@@ -129,12 +130,14 @@ const plotBlock: TokenizerExtension = {
   },
 }
 const markdown = new Marked({ gfm: true, breaks: true, extensions: [block, inline, plotBlock] })
+const plainMarkdown = new Marked({ gfm: true, breaks: true })
 export function formulaFromRaw(raw: string): FormulaToken | undefined {
   const first = blockFormula(raw) ?? inlineFormula(raw)
   return first?.source === raw ? first : undefined
 }
 
 export function lexNote(source: string) {
+  if (!source.includes('dsh-plot') && !source.includes('$') && !source.includes('\\(') && !source.includes('\\[')) return plainMarkdown.lexer(source)
   if (!source.includes('dsh-plot')) return markdown.lexer(source)
   const lexer = new markdown.Lexer(markdown.defaults)
   const breaks: number[] = []
@@ -273,6 +276,22 @@ export function noteImageToken(token: Token): Tokens.Image | undefined {
   const link = token as Tokens.Link
   if (link.text !== '图片' || !generatedImagePath.test(link.href) || link.raw !== '[图片](' + link.href + ')') return
   return { ...link, type: 'image', title: null }
+}
+
+/** 提取正文中的所有受支持的本地图片引用路径（去重保序）。 */
+export function collectLocalImageHrefs(source: string): string[] {
+  const local = new Set<string>()
+  if (!source.includes('](')) return []
+  walkTokens(lexNote(source), token => {
+    const image = token.type === 'image' ? (token as { href?: string }) : noteImageToken(token)
+    if (
+      image &&
+      typeof image.href === 'string' &&
+      !/^(https?:|mailto:|#)/i.test(image.href)
+    )
+      local.add(image.href)
+  })
+  return [...local]
 }
 
 export function notePreviewSpans(source: string, tokens = lexNote(source), indexed = noteBlocks(source, tokens)) {

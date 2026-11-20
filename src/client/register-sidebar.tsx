@@ -21,6 +21,7 @@ export const ATLAS_ID = 'dsh-mindmap/atlas'
 export interface AtlasNavigation {
   mapId?: string
   reference?: ReferenceSnapshot
+  autoOpen?: boolean
 }
 declare module '@deepseek-ai/dsh-client-ui-sidebar-right/client' {
   interface SidebarRightTabParamsMap {
@@ -58,7 +59,9 @@ export function createReadingStore() {
 }
 export function registerSidebar(ctx: Context, bodyEditor: NoteBodyEditor): void {
   ctx.effect(() => () => disposeEditSessions())
-  ctx.effect(() => ctx.sidebarRight.registerCloseHandler(ATLAS_KIND, sessionId => closeEditSessions(sessionId)))
+  if (typeof ctx.sidebarRight.registerCloseHandler === 'function') {
+    ctx.effect(() => ctx.sidebarRight.registerCloseHandler(ATLAS_KIND, sessionId => closeEditSessions(sessionId)))
+  }
   ctx.effect(() =>
     ctx.sidebarRightTabs.register({
       id: ATLAS_ID,
@@ -99,10 +102,6 @@ export function registerSidebar(ctx: Context, bodyEditor: NoteBodyEditor): void 
               return ctx.conversation.input
                 .for(binding.ctx)
                 .insertReference(ref, span)
-            },
-            insertText: (text: string, span: TokenSpan) => {
-              if (!binding || sessions.binding(sessionId) !== binding || ctx.sidebarRight.mounted.getSnapshot() !== sessionId) return false
-              return binding.ctx.bail('slash/input-insert-text', { text, span }) === true
             },
           }
         },

@@ -6,7 +6,8 @@ import {createHostFiles, readSnapshot} from '../../src/server/map-files.ts'
 import {digest, canonicalJson} from '../../src/shared/fingerprint.ts'
 import {EditSession} from '../../src/client/edit-session.ts'
 import type {HostAdapter} from '../../src/client/host-adapter.ts'
-import {registerTools} from '../../src/server/tools/index.ts'
+import {registerTools,AtlasToolError} from '../../src/server/tools/index.ts'
+import {ToolExecutionPipeline} from '@deepseek-ai/dsh-tools/pipeline'
 function harness() {
  const files=new Map<string,{text:string;version:string}>();let revision=0
  const tools=new Map<string,any>();let failPath='';let approve='allowed-once';let approvals=0
@@ -21,7 +22,14 @@ function harness() {
  readBytes:async(s:any,p:string,o:any)=>{const f=files.get(s.workspaceRoot+'/'+p);if(!f)throw missing();const all=new TextEncoder().encode(f.text);return {data:all.slice(o.range.offset,o.range.offset+o.range.length),version:f.version,eof:o.range.offset+o.range.length>=all.length}},
  list:async(s:any)=>({entries:[...new Set([...files.keys()].filter(k=>k.startsWith(s.workspaceRoot+'/dsh-knowledge-maps/')).map(k=>k.split('/')[3]))].map(name=>({name,type:'directory'})),truncated:false})}}
  registerTools(ctx)
- const call=async(name:string,args:any,workspace='/one',mode='workspace-write')=>tools.get(name).execute(args,{agent:{id:'session-'+workspace,session:{header:{cwd:workspace},mode}},signal:new AbortController().signal,callId:'call'})
+ const call=async(name:string,args:any,workspace='/one',mode='workspace-write')=>{
+  try {
+   return await tools.get(name).execute(args,{agent:{id:'session-'+workspace,session:{header:{cwd:workspace},mode}},signal:new AbortController().signal,callId:'call'})
+  } catch (e) {
+   if (e instanceof AtlasToolError) return JSON.parse(e.message)
+   throw e
+  }
+ }
  return {ctx,files,tools,call,fail:(path:string)=>{failPath=path},deny:()=>{approve='rejected'},approvals:()=>approvals}
 }
 const content={title:'系统架构',rootViewId:'root',nodes:[{id:'api',title:'接口',summary:'请求入口',category:'blue',icon:'layers'}],views:[{id:'root',title:'架构',parentViewId:null,groups:[],occurrences:[{nodeId:'api'}],relationIds:[]}],relations:[]}
@@ -198,4 +206,25 @@ test('认领后取消多文件保存，回退已写入的正文和结构',async(
   assert.equal(restored.map.nodes[0].title,'接口')
   assert.equal(restored.notes.api,'原始正文')
   assert.equal((await h.status(req)).state,'absent')
+})
+
+test('AtlasToolError 触发 dsh-tools isError: true 与 retiredCreateIds 防复活', async () => {
+  const h = harness()
+  await assert.rejects(
+    () => h.tools.get('atlas_read').execute({ mapId: 'missing-map' }, { agent: { id: 's1', session: { header: { cwd: '/one' }, mode: 'workspace-write' } }, signal: new AbortController().signal, callId: 'c1' }),
+    (err: unknown) => err instanceof AtlasToolError && ['FS_NOT_FOUND', 'workspace-file/not-found'].includes(err.status),
+  )
+  assert.equal(typeof ToolExecutionPipeline, 'function')
+  h.files.set('/one/dsh-knowledge-maps/library.json', {
+    text: JSON.stringify({ schemaVersion: 1, folders: [], mapFolders: {}, retiredCreateIds: ['map-58d6db43c7a7c5e1f60f41f578b96a0d'] }),
+    version: '1',
+  })
+  const hashId = await digest(new TextEncoder().encode(JSON.stringify({ operationId: 'op-retired' })))
+  const mapId = 'map-' + hashId.slice(0, 32)
+  h.files.set('/one/dsh-knowledge-maps/library.json', {
+    text: JSON.stringify({ schemaVersion: 1, folders: [], mapFolders: {}, retiredCreateIds: [mapId] }),
+    version: '2',
+  })
+  const blocked = await h.call('atlas_create', { operationId: 'op-retired', content, notes: {} })
+  assert.equal(blocked.status, 'create_discarded')
 })

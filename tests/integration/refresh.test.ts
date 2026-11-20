@@ -80,8 +80,11 @@ test('读取位置与手动相机保持，删除当前对象说明后降级，�
     digest: 'x',
     version: '1',
   })
+  const watched = watchPaths(snapshot)
+  assert.ok(watched.length <= 16)
+  assert.ok(watched.every(p => !p.endsWith('.json') && !p.endsWith('.md')))
   assert.ok(
-    watchPaths(snapshot).includes('dsh-knowledge-maps/map-a/notes/deep'),
+    watched.includes('dsh-knowledge-maps/map-a/notes/deep'),
   )
-  assert.ok(watchPaths(snapshot).includes('dsh-knowledge-maps/map-a/notes'))
+  assert.ok(watched.includes('dsh-knowledge-maps/map-a/notes'))
 })

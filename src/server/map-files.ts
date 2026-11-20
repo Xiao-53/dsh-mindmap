@@ -4,11 +4,11 @@ import type { WorkspaceFileScope } from '@deepseek-ai/dsh-api-workspace-files'
 import type { FsTarget, FsVersion } from '@deepseek-ai/dsh-fs'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import { posix } from 'node:path'
-import { walkTokens } from 'marked'
-import { lexNote } from '../shared/note-markdown.ts'
+import { collectLocalImageHrefs } from '../shared/note-markdown.ts'
 import { digest, fingerprint } from '../shared/fingerprint.ts'
 import { validateMap } from '../shared/validate-map.ts'
 import { validateLayout } from '../shared/validate-layout.ts'
+import { normalizeNotePathKey } from '../shared/workspace-path.ts'
 import type {
   MapSnapshot,
   MapListing,
@@ -35,6 +35,7 @@ export interface FileRecord {
 export interface MapFilePort {
   workspaceKey: string
   read(path: string, mapId: string, assetsOnly?: boolean): Promise<FileRecord>
+  verify?(path: string, mapId: string, assetsOnly?: boolean): Promise<{ version: string; identity: string }>
   absent(path: string): Promise<boolean>
   list(): Promise<string[]>
   listEntries?(mapId: string, relative: string): Promise<readonly { name: string; type: string }[]>
@@ -50,8 +51,12 @@ export const errorCode = (e: unknown) =>
     : e instanceof SyntaxError || (e instanceof Error && e.name === 'ZodError')
       ? 'invalid_data'
       : 'storage_failure'
-const missing = (e: unknown) =>
-  ['workspace-file/not-found', 'FS_NOT_FOUND'].includes(errorCode(e))
+export const isNotFoundError = (e: unknown): boolean => {
+  const code = errorCode(e)
+  if (['workspace-file/not-found', 'FS_NOT_FOUND', 'ENOENT'].includes(code)) return true
+  const msg = e instanceof Error ? e.message : String(e)
+  return /ENOENT|workspace-file\/not-found|FS_NOT_FOUND/i.test(msg)
+}
 export function localPath(path: string): string {
   const raw = path.replaceAll('\\', '/')
   if (
@@ -163,6 +168,11 @@ export function createHostFiles(
         identity: String(target.targetKey),
       }
     },
+    async verify(path, mapId, assetsOnly) {
+      const target = await boundary(path, mapId, assetsOnly)
+      const info = await ctx.workspaceFiles.stat(scope, path, signal)
+      return { version: info.version, identity: String(target.targetKey) }
+    },
     async absent(path) {
       const id = path.split('/')[1]
       if (id) await boundary(path, id)
@@ -170,7 +180,7 @@ export function createHostFiles(
         await ctx.workspaceFiles.stat(scope, path, signal)
         return false
       } catch (e) {
-        if (missing(e)) return true
+        if (isNotFoundError(e)) return true
         throw e
       }
     },
@@ -183,6 +193,12 @@ export function createHostFiles(
         })
         if (!ctx.fs.contains(root, data))
           throw new AtlasError('path_outside_map', '地图数据目录越过工作区')
+        if (typeof ctx.fs.listDir === 'function') {
+          const entries = await ctx.fs.listDir(data, signal)
+          return entries
+            .filter((e) => e.type === 'directory')
+            .map((e) => e.name)
+        }
         const listing = await ctx.workspaceFiles.list(scope, DATA_ROOT, signal)
         if (listing.truncated)
           throw new AtlasError(
@@ -193,7 +209,7 @@ export function createHostFiles(
           .filter((e) => e.type === 'directory')
           .map((e) => e.name)
       } catch (e) {
-        if (missing(e)) return []
+        if (isNotFoundError(e)) return []
         throw e
       }
     },
@@ -203,13 +219,20 @@ export function createHostFiles(
       await boundary(`${path}/.boundary`, id)
       const entry = await ctx.fs.lstat(path, { cwd: scope.workspaceRoot }, signal)
       if (!entry || entry.type !== 'directory') throw new AtlasError('invalid_data', '占位目录必须为普通目录')
-      const listing = await ctx.workspaceFiles.list(scope, path, signal)
-      if (listing.truncated) throw new AtlasError('too_large', '占位目录列举被截断，保留原资料')
-      for (const child of listing.entries) {
+      let rawEntries: readonly { name: string; type: string }[]
+      if (typeof ctx.fs.listDir === 'function') {
+        const target = await ctx.fs.resolve(path, { cwd: scope.workspaceRoot, signal })
+        rawEntries = (await ctx.fs.listDir(target, signal)).map((e) => ({ name: e.name, type: e.type }))
+      } else {
+        const listing = await ctx.workspaceFiles.list(scope, path, signal)
+        if (listing.truncated) throw new AtlasError('too_large', '占位目录列举被截断，保留原资料')
+        rawEntries = listing.entries
+      }
+      for (const child of rawEntries) {
         const info = await ctx.fs.lstat(`${path}/${child.name}`, { cwd: scope.workspaceRoot }, signal)
         if (!info || info.type !== child.type) throw new AtlasError('version_conflict', '占位目录含链接或读取期间发生变化')
       }
-      return listing.entries
+      return rawEntries
     },
     async writeLayout(id, text, expectedVersion) {
       const path = mapPath(id, 'layout.json')
@@ -291,14 +314,62 @@ export async function inspectCreatePlaceholder(port: MapFilePort, id: string, cl
 async function listedPlaceholder(port: MapFilePort, id: string) {
   try { return await inspectCreatePlaceholder(port, id) } catch { return undefined }
 }
+const MAX_RESOURCE_BYTES = 20 * 1024 * 1024
+const IMAGE_MIME_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+}
+
+function resolveNoteAssetPath(noteRelPath: string, href: string): string {
+  const clean = decodeURIComponent(href.split(/[?#]/)[0])
+  const relative = localPath(posix.join(posix.dirname(noteRelPath), clean))
+  if (!relative.startsWith('assets/'))
+    throw new AtlasError('path_outside_map', `本地资源必须位于 assets：${href}`)
+  return relative
+}
+
+async function resolveImageAsset(
+  bytes: Uint8Array,
+  relative: string,
+  href: string,
+  includeUrl: boolean,
+): Promise<{ byteLength: number; url?: string }> {
+  if (relative.endsWith('.image.json')) {
+    const image = await validateImage(JSON.parse(decode(bytes)))
+    if (relative !== `assets/${image.id}.image.json`)
+      throw new AtlasError('invalid_data', '图片身份与路径不符')
+    if (bytes.byteLength > MAX_RESOURCE_BYTES)
+      throw new AtlasError('resource_too_large', `单张图片资源超过 20 MiB 上限：${href}`)
+    return { byteLength: bytes.byteLength, url: includeUrl ? imageUrl(image) : undefined }
+  }
+  const mime = IMAGE_MIME_TYPES[posix.extname(relative).slice(1).toLowerCase()]
+  if (!mime)
+    throw new AtlasError(
+      'invalid_data',
+      `资源类型不受支持：${href}；仅支持 png/jpg/jpeg/gif/webp`,
+    )
+  if (bytes.byteLength > MAX_RESOURCE_BYTES)
+    throw new AtlasError('resource_too_large', `单张图片资源超过 20 MiB 上限：${href}`)
+  return {
+    byteLength: bytes.byteLength,
+    url: includeUrl ? `data:${mime};base64,${Buffer.from(bytes).toString('base64')}` : undefined,
+  }
+}
+
 export async function readSnapshot(
   port: MapFilePort,
   mapId: string,
   allowResourceErrors = false,
+  options?: { omitResources?: boolean },
 ): Promise<MapSnapshot> {
+  const omitResources = options?.omitResources ?? false
   const resourceErrors: import('../shared/map-types.ts').Diagnostic[] = []
   const files: ReadFile[] = []
   const records = new Map<string, FileRecord>()
+  let totalResourceBytes = 0
   async function read(relative: string, assetsOnly = false) {
     const path = mapPath(mapId, relative)
     const cached = records.get(path)
@@ -345,10 +416,15 @@ export async function readSnapshot(
   const notes: Record<string, string> = Object.create(null)
   const resources: Record<string, string> = Object.create(null)
   const noteIdentities = new Set<string>()
+  const notePathKeys = new Set<string>()
   for (const node of map.nodes) {
     notes[node.id] = ''
     if (!node.notePath) continue
     const path = localPath(node.notePath)
+    const pathKey = normalizeNotePathKey(path)
+    if (notePathKeys.has(pathKey))
+      throw new AtlasError('invalid_data', `不同节点引用了同一笔记路径：${path}`)
+    notePathKeys.add(pathKey)
     if (
       !/\.md$/i.test(path) ||
       /(^|\/)(exports|\.transactions)(\/|$)/.test(path)
@@ -366,62 +442,39 @@ export async function readSnapshot(
     noteIdentities.add(record.identity)
     const text = decode(record.bytes)
     notes[node.id] = text
-    const local = new Set<string>()
-    walkTokens(lexNote(text), (token) => {
-      if (
-        (token.type === 'image' || token.type === 'link') &&
-        'href' in token &&
-        typeof token.href === 'string' &&
-        !/^(https?:|mailto:|#)/i.test(token.href)
-      )
-        local.add(token.href)
-    })
-    for (const href of local) {
-      const clean = decodeURIComponent(href.split(/[?#]/)[0])
-      const relative = localPath(posix.join(posix.dirname(path), clean))
-      if (!relative.startsWith('assets/'))
-        throw new AtlasError(
-          'path_outside_map',
-          `本地资源必须位于 assets：${href}`,
-        )
+    for (const href of collectLocalImageHrefs(text)) {
+      const relative = resolveNoteAssetPath(path, href)
       try {
-      const asset = await read(relative, true)
-      if (relative.endsWith('.image.json')) {
-        const image = await validateImage(JSON.parse(decode(asset.bytes)))
-        if (relative !== `assets/${image.id}.image.json`) throw new AtlasError('invalid_data','图片身份与路径不符')
-        resources[`${node.id}:${href}`] = imageUrl(image)
-        continue
-      }
-      const mime = (
-        {
-          png: 'image/png',
-          jpg: 'image/jpeg',
-          jpeg: 'image/jpeg',
-          gif: 'image/gif',
-          webp: 'image/webp',
-          pdf: 'application/pdf',
-          txt: 'text/plain',
-        } as Record<string, string>
-      )[posix.extname(relative).slice(1).toLowerCase()]
-      if (!mime)
-        throw new AtlasError(
-          'invalid_data',
-          `资源类型不受支持：${href}；支持 png/jpg/gif/webp/pdf/txt`,
-        )
-      resources[`${node.id}:${href}`] =
-        `data:${mime};base64,${Buffer.from(asset.bytes).toString('base64')}`
-      } catch(e) {
-        if (!allowResourceErrors || !(missing(e) || ['invalid_data','invalid_image','too_large'].includes(errorCode(e)))) throw e
-        resourceErrors.push({path:`${node.id}:${href}`,code:'resource_unavailable',message:String(e)})
+        const asset = await read(relative, true)
+        const resolved = await resolveImageAsset(asset.bytes, relative, href, !omitResources)
+        if (!omitResources) {
+          totalResourceBytes += resolved.byteLength
+          if (totalResourceBytes > MAX_RESOURCE_BYTES)
+            throw new AtlasError('resource_too_large', `单图内联图片资源超过 20 MiB 上限：${href}`)
+          if (resolved.url) resources[`${node.id}:${href}`] = resolved.url
+        }
+      } catch (e) {
+        if (!allowResourceErrors || !(isNotFoundError(e) || ['invalid_data', 'invalid_image', 'too_large', 'resource_too_large'].includes(errorCode(e)))) throw e
+        resourceErrors.push({ path: `${node.id}:${href}`, code: errorCode(e) === 'resource_too_large' ? 'resource_too_large' : 'resource_unavailable', message: String(e) })
       }
     }
   }
-  // 复读整个实际读集，拒绝混合版本，包含布局缺失这一依赖。
+  // 复读整个实际读集，拒绝混合版本；图片资产优先通过轻量 verify 核对版本与真实身份。
   for (const file of files) {
+    const isAsset = file.path.startsWith(`${DATA_ROOT}/${mapId}/assets/`)
+    if (isAsset && port.verify) {
+      const checked = await port.verify(file.path, mapId, true)
+      if (
+        checked.version !== file.version ||
+        checked.identity !== records.get(file.path)?.identity
+      )
+        throw new AtlasError('version_conflict', `${file.path} 加载期间已变化`)
+      continue
+    }
     const again = await port.read(
       file.path,
       mapId,
-      file.path.startsWith(`${DATA_ROOT}/${mapId}/assets/`),
+      isAsset,
     )
     if (
       again.version !== file.version ||
@@ -446,9 +499,105 @@ export async function readSnapshot(
     workspaceKey: port.workspaceKey,
   }
 }
+
+export async function readNodeResources(
+  port: MapFilePort,
+  mapId: string,
+  nodeIds?: readonly string[],
+): Promise<{ resources: Record<string, string>; diagnostics: Diagnostic[] }> {
+  const assertClean = async () => {
+    if (!(await port.absent(mapPath(mapId, '.transactions/active.json'))))
+      throw new AtlasError('recovery_required', '地图存在活动或待恢复操作，暂不开放')
+    if (!(await port.absent(mapPath(mapId, '.transactions/purge.json'))))
+      throw new AtlasError('purge_pending', '地图正在永久删除或已删除；请在回收站重试未完成的删除')
+  }
+  await assertClean()
+  const mapRecord = await port.read(mapPath(mapId, 'map.json'), mapId)
+  const structure = validateMap(JSON.parse(decode(mapRecord.bytes)), mapId)
+  if (!structure.ok)
+    throw new AtlasError('invalid_data', '地图结构校验失败', structure.diagnostics)
+  const map = structure.value
+  const targetSet = nodeIds?.length ? new Set(nodeIds) : undefined
+  const targetNodes = targetSet ? map.nodes.filter(node => targetSet.has(node.id)) : map.nodes
+  const cachedAssets = new Map<string, FileRecord>()
+  const resources: Record<string, string> = Object.create(null)
+  const diagnostics: Diagnostic[] = []
+  let totalResourceBytes = 0
+  for (const node of targetNodes) {
+    if (!node.notePath) continue
+    const path = localPath(node.notePath)
+    if (!/\.md$/i.test(path) || /(^|\/)(exports|\.transactions)(\/|$)/.test(path))
+      throw new AtlasError('invalid_data', `${node.id} 的 notePath 必须是地图内 Markdown 文件`)
+    const noteRecord = await port.read(mapPath(mapId, path), mapId)
+    const text = decode(noteRecord.bytes)
+    for (const href of collectLocalImageHrefs(text)) {
+      const relative = resolveNoteAssetPath(path, href)
+      try {
+        const fullPath = mapPath(mapId, relative)
+        let asset = cachedAssets.get(fullPath)
+        if (!asset) {
+          asset = await port.read(fullPath, mapId, true)
+          cachedAssets.set(fullPath, asset)
+        }
+        const resolved = await resolveImageAsset(asset.bytes, relative, href, true)
+        totalResourceBytes += resolved.byteLength
+        if (totalResourceBytes > MAX_RESOURCE_BYTES)
+          throw new AtlasError('resource_too_large', `单次按需加载图片资源超过 20 MiB 上限：${href}`)
+        if (resolved.url) resources[`${node.id}:${href}`] = resolved.url
+      } catch (e) {
+        if (!(isNotFoundError(e) || ['invalid_data', 'invalid_image', 'too_large', 'resource_too_large'].includes(errorCode(e)))) throw e
+        diagnostics.push({
+          path: `${node.id}:${href}`,
+          code: errorCode(e) === 'resource_too_large' ? 'resource_too_large' : 'resource_unavailable',
+          message: String(e),
+        })
+      }
+    }
+  }
+  await assertClean()
+  return { resources, diagnostics }
+}
+async function hasOnlyEmptySubdirs(port: MapFilePort, id: string, rel: string, depth = 0): Promise<boolean> {
+  if (!port.listEntries || depth > 8) return false
+  const entries = await port.listEntries(id, rel)
+  for (const entry of entries) {
+    if (entry.type !== 'directory') return false
+    const nextRel = rel === '.' ? entry.name : `${rel}/${entry.name}`
+    if (!await hasOnlyEmptySubdirs(port, id, nextRel, depth + 1)) return false
+  }
+  return true
+}
+
+export async function isCompactedEmptyDir(port: MapFilePort, id: string): Promise<boolean> {
+  if (
+    !await port.absent(mapPath(id, 'map.json')) ||
+    !await port.absent(mapPath(id, '.transactions/active.json')) ||
+    !await port.absent(mapPath(id, '.transactions/purge.json')) ||
+    !await port.absent(mapPath(id, '.transactions/discarded-create.json'))
+  ) return false
+  if (!port.listEntries) return true
+  const root = await port.listEntries(id, '.')
+  for (const entry of root) {
+    if (entry.type !== 'directory') return false
+    if (!['.transactions', 'notes', 'assets'].includes(entry.name)) return false
+    if (!await hasOnlyEmptySubdirs(port, id, entry.name)) return false
+  }
+  return true
+}
+
 // 管理目录只校验结构和活动标记；正文、资源及布局留到打开目标地图时完整加载。
-export async function listMapHeaders(port: MapFilePort, excluded: ReadonlySet<string> = new Set()): Promise<MapListing> {
-  const ids = (await port.list()).filter(id => !excluded.has(id))
+export async function listMapHeaders(
+  port: MapFilePort,
+  excluded: ReadonlySet<string> = new Set(),
+  retired: ReadonlySet<string> = new Set(),
+): Promise<MapListing> {
+  const allIds = await port.list()
+  const directoryCount = allIds.length
+  let retiredCount = 0
+  for (const id of allIds) {
+    if (retired.has(id)) retiredCount++
+  }
+  const ids = allIds.filter(id => !excluded.has(id))
   const entries: (MapListing['maps'][number] | Diagnostic | undefined)[] = new Array(ids.length)
   const incompleteCreates: NonNullable<MapListing['incompleteCreates']> = []
   let next = 0
@@ -458,12 +607,20 @@ export async function listMapHeaders(port: MapFilePort, excluded: ReadonlySet<st
       try {
         const placeholder = await listedPlaceholder(port, id)
         if (placeholder) {
-          if (placeholder.state !== 'discarded') incompleteCreates.push({mapId:id,operationId:placeholder.operationId,state:placeholder.state})
+          if (placeholder.state === 'discarded') {
+            if (!retired.has(id)) retiredCount++
+          } else {
+            incompleteCreates.push({mapId:id,operationId:placeholder.operationId,state:placeholder.state})
+          }
           continue
         }
+        if (retired.has(id) && await isCompactedEmptyDir(port, id)) continue
         const inactive = async () => {
           if (!await port.absent(mapPath(id, '.transactions/active.json'))) throw new AtlasError('recovery_required', '地图正在提交或待恢复')
-          if (!await port.absent(mapPath(id, '.transactions/purge.json'))) throw new AtlasError('purge_pending', '地图正在永久删除或已删除')
+          if (!await port.absent(mapPath(id, '.transactions/purge.json'))) {
+            if (!retired.has(id)) retiredCount++
+            throw new AtlasError('purge_pending', '地图正在永久删除或已删除')
+          }
         }
         await inactive()
         const record = await port.read(mapPath(id, 'map.json'), id)
@@ -477,20 +634,39 @@ export async function listMapHeaders(port: MapFilePort, excluded: ReadonlySet<st
     }
   }
   await Promise.all(Array.from({ length: Math.min(4, ids.length) }, worker))
-  return { maps: entries.filter((entry): entry is MapListing['maps'][number] => !!entry && 'id' in entry), diagnostics: entries.filter((entry): entry is Diagnostic => !!entry && 'path' in entry), incompleteCreates: incompleteCreates.sort((a,b) => a.mapId.localeCompare(b.mapId)) }
+  return {
+    maps: entries.filter((entry): entry is MapListing['maps'][number] => !!entry && 'id' in entry),
+    diagnostics: entries.filter((entry): entry is Diagnostic => !!entry && 'path' in entry),
+    incompleteCreates: incompleteCreates.sort((a,b) => a.mapId.localeCompare(b.mapId)),
+    capacity: { directoryCount, retiredCount, warningThreshold: 500 },
+  }
 }
-export async function listMaps(port: MapFilePort): Promise<MapListing> {
-  const result: MapListing = { maps: [], diagnostics: [], incompleteCreates: [] }
-  for (const id of await port.list()) {
+export async function listMaps(port: MapFilePort, retired: ReadonlySet<string> = new Set()): Promise<MapListing> {
+  const allIds = await port.list()
+  let retiredCount = 0
+  const result: MapListing = {
+    maps: [],
+    diagnostics: [],
+    incompleteCreates: [],
+    capacity: { directoryCount: allIds.length, retiredCount: 0, warningThreshold: 500 },
+  }
+  for (const id of allIds) {
+    if (retired.has(id)) retiredCount++
     try {
       const placeholder = await listedPlaceholder(port, id)
       if (placeholder) {
-        if (placeholder.state !== 'discarded') result.incompleteCreates!.push({mapId:id,operationId:placeholder.operationId,state:placeholder.state})
+        if (placeholder.state === 'discarded') {
+          if (!retired.has(id)) retiredCount++
+        } else {
+          result.incompleteCreates!.push({mapId:id,operationId:placeholder.operationId,state:placeholder.state})
+        }
         continue
       }
+      if (retired.has(id) && await isCompactedEmptyDir(port, id)) continue
       const snap = await readSnapshot(port, id)
       result.maps.push({ id, title: snap.map.title })
     } catch (e) {
+      if (!retired.has(id) && !await port.absent(mapPath(id, '.transactions/purge.json'))) retiredCount++
       result.diagnostics.push({
         path: `${DATA_ROOT}/${id}`,
         code: errorCode(e),
@@ -498,6 +674,7 @@ export async function listMaps(port: MapFilePort): Promise<MapListing> {
       })
     }
   }
+  result.capacity!.retiredCount = retiredCount
   return result
 }
 export async function saveLayout(
@@ -506,8 +683,9 @@ export async function saveLayout(
   expectedFingerprint: string,
   layout: MapLayout,
   allowManual = false,
+  options?: { omitResources?: boolean },
 ): Promise<MapSnapshot> {
-  const current = await readSnapshot(port, mapId)
+  const current = await readSnapshot(port, mapId, false, { omitResources: true })
   if (current.fingerprint !== expectedFingerprint)
     throw new AtlasError('version_conflict', '内容已变化，请刷新后重试保存布局')
   const validated = validateLayout(layout, current.map)
@@ -561,5 +739,5 @@ export async function saveLayout(
     current.files.find((f) => f.path === mapPath(mapId, 'layout.json'))
       ?.version,
   )
-  return readSnapshot(port, mapId)
+  return readSnapshot(port, mapId, false, options)
 }

@@ -44,3 +44,9 @@
 - 产品定位扩展为通用思维导图，包括架构设计、流程与学习知识；不强制学习专用笔记章节。
 - 0.3.0已实现下阶段工具及保存保护，DSH命令为`/minimap`（内嵌skill名mindmap）；不自动发起模型请求。人工验收见docs/validation/0.3.0.md。
 - 本轮用户单独授权仅运行保存/恢复内部故障注入测试，不扩展到界面、浏览器或视觉检查；未来自主测试仍遵守原约定。
+
+## 2026-11-20 自动化 E2E 验证工作流
+
+- 仓库已接入 `agent-browser`（`.agents/skills/agent-browser/SKILL.md` 及全局 `~/.gemini/config/skills/agent-browser/SKILL.md`）与两层自动化 E2E 验证工作流（`.agents/skills/dsh-e2e-verify/SKILL.md`、`scripts/e2e-env.mjs`、`npm.cmd run verify:layer1`、`npm.cmd run verify:e2e:start`、`npm.cmd run verify:e2e:serve`、`npm.cmd run verify:e2e:stop`）。
+- 后续**仅在用户明确要求由 Agent 执行自动化验收时**，才由 Agent 先用 `verify:e2e:serve`（独立终端可用 `verify:e2e:start`）启动隔离的临时 `DSH_HOME`、`e2e-workspace`、`--profile web --no-open` 与独立端口测试实例，再用 `agent-browser.cmd --session dsh-mindmap-e2e`（保留默认 `AGENT_BROWSER_SOCKET_DIR`，支持 `--headed` 或 `agent-browser dashboard` 实时围观）交互式跑完测试并排查前端报错，最后执行 `npm.cmd run verify:e2e:stop` 清理并汇报验收报告与 `test-artifacts/` 关键截图；其余日常开发改动完成后，UI 验收仍交由用户手动确认（`test-artifacts/` 已加入 `.gitignore`）。
+- Windows 11 / PowerShell 环境下避免调用被执行策略拦截的 `.ps1`，应使用 `npm.cmd`、`agent-browser.cmd` 与 DSH Desktop 内置 `dsh.cmd`；测试结束必须关闭浏览器会话、终止后台 `dsh` 进程树并清理临时 `DSH_HOME`。

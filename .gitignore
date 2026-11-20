@@ -32,3 +32,6 @@ coverage/
 *.tmp
 .vscode/
 .idea/
+
+# Local E2E browser verification artifacts
+test-artifacts/

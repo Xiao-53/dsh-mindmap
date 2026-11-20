@@ -21,8 +21,9 @@ test('实际客户端产物在严格 Cordis 插件上下文挂载后可从侧栏
         ? { defineStore: (config: unknown) => config } : require(name))
     } } },
     document: {
-      createElement: () => ({ textContent: '', remove: () => { styles-- } }),
+      createElement: () => ({ textContent: '', getElementsByTagName: () => [], remove: () => { styles-- } }),
       head: { append: () => { styles++ } },
+      documentElement: { style: {} },
     },
     AbortSignal, AbortController, setTimeout, clearTimeout, console,
   })
@@ -41,36 +42,36 @@ test('实际客户端产物在严格 Cordis 插件上下文挂载后可从侧栏
     inject: (_name: string, callback: () => unknown) => callback(),
     register: (options: any) => { registration = options; return () => { registration = undefined } },
   } as any)
-  ctx.provide('sidebarRight', { mounted: { getSnapshot: () => 's1' } } as any)
+  ctx.provide('sidebarRight', { mounted: { getSnapshot: () => 's1' }, registerCloseHandler: () => () => {} } as any)
   ctx.provide('sidebarRightTabs', { register: () => { activeTabs++; return () => { activeTabs-- } } } as any)
   ctx.provide('remote.workspaceFiles', {} as any)
   ctx.provide('inputTriggers', { registerSource: () => () => {} } as any)
   ctx.provide('conversation', {} as any)
   const binding = { ctx: ctx.extend() }
-  let currentBinding: typeof binding | undefined = binding
-  let inserted = ''
-  binding.ctx.on('slash/input-insert-text', request => { inserted = request.text; return true })
-  ctx.provide('sessions', { binding: () => currentBinding } as any)
+  ctx.provide('sessions', { binding: () => binding } as any)
   try {
     await ctx.plugin(gateway)
     const fiber = ctx.plugin(client)
     await fiber
     assert.equal(activeTabs, 1)
     assert.equal(styles, 1)
+    const manifest = JSON.parse(await readFile('package.json', 'utf8'))
+    assert.equal(manifest.dependencies.zod, undefined)
+    assert.equal(manifest.peerDependencies.zod, '^4.0.0')
+    assert.ok(manifest.dsh.client.inject.includes('@deepseek-ai/dsh-api-session-controller'))
+    assert.ok(manifest.dsh.client.inject.includes('@deepseek-ai/dsh-client-store'))
+    assert.ok(manifest.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-slots'))
     const projected = registration.inject('s1')
+    assert.equal('insertText' in projected, false)
     const host = projected.host
+    assert.equal(typeof host.cleanupOrphanAssets, 'function')
+    assert.equal(typeof host.compactRetired, 'function')
     const listing = await host.list(new AbortController().signal)
     assert.equal(listing.maps.length, 0)
     assert.equal(listing.diagnostics.length, 0)
     assert.equal(calls[0].endpoint, 'dshAtlas/request')
     assert.equal(calls[0].workspaceFileScopeId, 's1')
     assert.equal(JSON.parse(calls[0].payload).op, 'list')
-    const span = { start:0,end:0,draftRev:1 }
-    assert.equal(projected.insertText('可编辑问题草稿', span), true)
-    assert.equal(inserted, '可编辑问题草稿')
-    currentBinding = undefined
-    assert.equal(projected.insertText('不能跨会话插入', span), false)
-    assert.equal(inserted, '可编辑问题草稿')
     await fiber.dispose()
     assert.equal(activeTabs, 0)
     assert.equal(styles, 0)

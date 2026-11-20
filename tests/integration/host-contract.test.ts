@@ -46,6 +46,8 @@ test('构建后的插件通过真实 Cordis/Typert/Gateway 绑定会话并检查
     }),
     contains: (a: any, b: any) =>
       b.targetKey === a.targetKey || b.targetKey.startsWith(a.targetKey + '/'),
+    lstat: async () => undefined,
+    stat: async () => undefined,
   } as any)
   ctx.provide('workspaceFiles', {
     readBytes: async (scope: any, path: string) => ({
@@ -103,6 +105,14 @@ test('构建后的插件通过真实 Cordis/Typert/Gateway 绑定会话并检查
     )
     assert.equal(bad.ok, false)
     assert.equal(bad.code, 'invalid_data')
+    const normalized = JSON.parse(
+      (await invoke('s1', {
+        op: 'read',
+        mapId: 'map-a',
+        expectedWorkspaceKey: '/one/',
+      })) as string,
+    )
+    assert.equal(normalized.ok, true)
     const changed = JSON.parse(
       (await invoke('s2', {
         op: 'read',

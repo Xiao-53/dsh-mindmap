@@ -115,11 +115,17 @@ export interface MapEntry {
   id: string
   title: string
 }
+export interface DirectoryCapacity {
+  directoryCount: number
+  retiredCount: number
+  warningThreshold: number
+}
 export interface MapListing {
   maps: MapEntry[]
   diagnostics: Diagnostic[]
   incompleteCreates?: { mapId: string; operationId: string; state: 'reserved' | 'failed' | 'cleanup_pending' }[]
   library?: import('./library.ts').LibraryState
+  capacity?: DirectoryCapacity
 }
 
 export type ReadResult = MapSnapshot & { writable: boolean; diagnostics: Diagnostic[] }

@@ -22,7 +22,7 @@ const SceneNode = memo(function SceneNode({node,layout,viewId,selected,locked,ha
 const SceneEdge = memo(function SceneEdge({relation:r,d,arrow,stem,ax,ay,bx,by}: {
   relation: ReturnType<typeof createConnections>['segments'][number]['relation'];d:string;arrow:string;stem:string;ax:number;ay:number;bx:number;by:number
 }) {
-  const secondary=r.type==='supplement',color=secondary?'#c0a385':'#91a796'
+  const secondary=r.type==='supplement',color=secondary?'var(--edge-secondary, #c0a385)':'var(--edge-primary, #91a796)'
   return <g data-relation={r.id} style={{opacity:secondary ? 0.58 : 0.76}}>
     <path className={`edge ${secondary?'secondary':''}`} d={d} stroke={color} style={{opacity:1,strokeLinecap:'butt'}} />
     <path d={stem} style={{fill:'none',stroke:color,strokeWidth:secondary?1.8:2,strokeDasharray:'none',strokeLinecap:'butt'}} />
@@ -73,7 +73,7 @@ export function MapScene({ map, view, layout, heights, selected, onOpen, onNote,
     <svg className="edges" aria-hidden="true">{segments.map(segment=><SceneEdge key={segment.relation.id} relation={segment.relation} d={segment.d} arrow={segment.arrow} stem={segment.stem} ax={segment.source.x} ay={segment.source.y} bx={segment.target.x} by={segment.target.y}/>)}</svg>
     {visualLayout.nodes.map(node=><SceneNode key={node.nodeId} node={nodes.get(node.nodeId)!} layout={node} viewId={view.id} selected={selected===node.nodeId} locked={locked} handlers={handlers}/>)}
     <svg className="atlas-ports" aria-hidden="true" style={{position:'absolute',left:0,top:0,width:'100%',height:'100%',overflow:'visible',pointerEvents:'none',zIndex:9}}>
-      {ports.map(port=><circle key={`${port.edgeIndex}-${port.role}`} data-edge={port.edgeIndex} data-side={port.side} data-node-port={port.nodeId} cx={port.x} cy={port.y} r={PORT_RADIUS} fill={port.role==='in'?'#8699aa':'#fffdf8'} stroke={port.role==='in'?'#8699aa':'#b38c97'} strokeWidth={port.role==='in'?INPUT_PORT_STROKE:OUTPUT_PORT_STROKE}/>)}
+      {ports.map(port=><circle key={`${port.edgeIndex}-${port.role}`} data-edge={port.edgeIndex} data-side={port.side} data-node-port={port.nodeId} cx={port.x} cy={port.y} r={PORT_RADIUS} fill={port.role==='in'?'var(--port-in, #8699aa)':'var(--port-out-fill, #fffdf8)'} stroke={port.role==='in'?'var(--port-in, #8699aa)':'var(--port-out, #b38c97)'} strokeWidth={port.role==='in'?INPUT_PORT_STROKE:OUTPUT_PORT_STROKE}/>)}
     </svg>
   </div>
 }

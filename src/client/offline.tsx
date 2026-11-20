@@ -9,6 +9,7 @@ import { initialReading, readingKey } from './reading-state.ts'
 declare const __NOTE_MATH_CSS__: string
 import atlasCss from './styles/atlas.css'
 import prototypeCss from './styles/prototype.css'
+import darkCss from './styles/dark.css'
 
 const data = JSON.parse(document.getElementById('atlas-data')!.textContent!) as OfflineMapData
 const snapshot: MapSnapshot = { ...data, files: [], workspaceKey: 'offline', fingerprint: 'offline', writable: false }
@@ -23,7 +24,7 @@ const host = {
   read: async () => snapshot,
 }
 const style = document.createElement('style')
-style.textContent = atlasCss + '\n' + prototypeCss + '\n' + __NOTE_MATH_CSS__
+style.textContent = atlasCss + '\n' + prototypeCss + '\n' + darkCss + '\n' + __NOTE_MATH_CSS__
 document.head.append(style)
 const actions = {
   selectMap: (id: string) => update({ ...state, selectedMapId: id }),

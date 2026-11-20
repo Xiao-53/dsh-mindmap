@@ -4,13 +4,15 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-api-gateway/client'
 import type {} from '@deepseek-ai/dsh-api-workspace-files/remote'
 import { requestMethod } from '../shared/rpc.ts'
-import type { MapSnapshot, MapLayout, MapListing } from '../shared/map-types.ts'
+import type { MapSnapshot, MapLayout, MapListing, Diagnostic } from '../shared/map-types.ts'
 import { watchPaths } from '../server/watch-map.ts'
 import type { LibraryState, MapLibrary } from '../shared/library.ts'
 export interface HostAdapter {
   editStatus?(request: EditStatusRequest, signal: AbortSignal): Promise<EditStatusResult>
   commitEdit?(request: EditRequest, signal: AbortSignal): Promise<{snapshot:MapSnapshot; committedFingerprint:string; noChange:boolean}>
   cleanupCreate?(mapId: string, operationId: string, workspaceKey: string, signal: AbortSignal): Promise<void>
+  cleanupOrphanAssets?(mapId: string, expectedFingerprint: string, expectedWorkspaceKey: string, signal: AbortSignal, assetIds?: string[]): Promise<{ deletedAssetIds: string[]; skipped: { id: string; reason: string }[] }>
+  compactRetired?(expectedWorkspaceKey: string, signal: AbortSignal, keepRecent?: number): Promise<{ compactedIds: string[]; library: LibraryState }>
   watchLibrary?(listing: MapListing, changed: (externalChange?: boolean) => void, signal: AbortSignal): () => void
   purge(mapIds: string[], previous: LibraryState, signal: AbortSignal): Promise<{ deletedIds: string[]; failures: { id: string; message: string }[]; library: LibraryState }>
   rename(mapId: string, title: string, previousTitle: string, workspaceKey: string, signal: AbortSignal): Promise<void>
@@ -21,7 +23,14 @@ export interface HostAdapter {
     mapId: string,
     signal: AbortSignal,
     expectedWorkspaceKey?: string,
+    options?: { omitResources?: boolean },
   ): Promise<MapSnapshot>
+  readResources?(
+    mapId: string,
+    nodeIds: string[] | undefined,
+    signal: AbortSignal,
+    expectedWorkspaceKey?: string,
+  ): Promise<{ resources: Record<string, string>; diagnostics: Diagnostic[] }>
   saveLayout(
     snapshot: MapSnapshot,
     layout: MapLayout,
@@ -59,30 +68,28 @@ export function createHostAdapter(
     return body.value
   }
   return {
-    editStatus: (request, signal) => call(request, signal),
-    commitEdit: (request, signal) => call(request, signal),
+    editStatus: (request, signal) => call({ ...request, omitResources: request.omitResources ?? true }, signal),
+    commitEdit: (request, signal) => call({ ...request, omitResources: request.omitResources ?? true }, signal),
     cleanupCreate: async (mapId, operationId, expectedWorkspaceKey, signal) => { await call({op:'cleanupCreate',mapId,operationId,expectedWorkspaceKey},signal) },
-    watchLibrary(listing, changed, signal) {
+    cleanupOrphanAssets: (mapId, expectedFingerprint, expectedWorkspaceKey, signal, assetIds) =>
+      call({ op: 'cleanupOrphanAssets', mapId, expectedFingerprint, expectedWorkspaceKey, ...(assetIds ? { assetIds } : {}) }, signal),
+    compactRetired: (expectedWorkspaceKey, signal, keepRecent) =>
+      call({ op: 'compactRetired', expectedWorkspaceKey, ...(keepRecent !== undefined ? { keepRecent } : {}) }, signal),
+    watchLibrary(_listing, changed, signal) {
       const controller = new AbortController()
       const stop = () => controller.abort()
       signal.addEventListener('abort', stop, { once: true })
       if (signal.aborted) stop()
       let timer: ReturnType<typeof setTimeout> | undefined
-      let initialCheck = false
-      let contentChanged = false
-      const ids = new Set([...listing.maps.map(map => map.id), ...(listing.incompleteCreates ?? []).map(item => item.mapId), ...listing.diagnostics.map(d => d.path.split('/')[1]).filter(id => id && /^[A-Za-z0-9_-]+$/.test(id))])
-      const paths = new Set(['.', 'dsh-knowledge-maps', 'dsh-knowledge-maps/library.json'])
-      for (const id of ids) for (const path of ['', '/map.json', '/.transactions', '/.transactions/active.json', '/.transactions/purge.json']) paths.add(`dsh-knowledge-maps/${id}${path}`)
+      const paths = ['.', 'dsh-knowledge-maps', 'dsh-knowledge-maps/library.json']
       for (const path of paths) void (async () => {
         const stream = ctx.remote.workspaceFiles.changes(sessionId, path, controller.signal)
         try {
           for await (const frame of stream) {
-            if (frame.kind === 'ready') { if (initialCheck) continue; initialCheck = true }
-            else if (frame.kind === 'change') contentChanged = true
-            else continue
+            if (frame.kind !== 'change') continue
             clearTimeout(timer)
             timer = setTimeout(() => {
-              if (!controller.signal.aborted) { const dirty = contentChanged; contentChanged = false; changed(dirty) }
+              if (!controller.signal.aborted) changed(true)
             }, 120)
           }
         } catch { /* 目录不存在或宿主不支持该观察时，返回页签/窗口聚焦仍会重新载入。 */ }
@@ -95,8 +102,15 @@ export function createHostAdapter(
     create: (title, expectedWorkspaceKey, signal) => call({ op: 'create', title, expectedWorkspaceKey }, signal),
     saveLibrary: (data, previous, signal) => call({ op: 'saveLibrary', data, version: previous.version, expectedWorkspaceKey: previous.workspaceKey }, signal),
     list: (signal) => call({ op: 'list' }, signal),
-    read: (mapId, signal, expectedWorkspaceKey) =>
-      call({ op: 'read', mapId, expectedWorkspaceKey }, signal),
+    read: (mapId, signal, expectedWorkspaceKey, options) =>
+      call({ op: 'read', mapId, expectedWorkspaceKey, omitResources: options?.omitResources ?? true }, signal),
+    readResources: (mapId, nodeIds, signal, expectedWorkspaceKey) =>
+      call({
+        op: 'readResources',
+        mapId,
+        ...(nodeIds?.length ? { nodeIds } : {}),
+        ...(expectedWorkspaceKey ? { expectedWorkspaceKey } : {}),
+      }, signal),
     saveLayout: (snapshot, layout, signal, manual) =>
       call(
         {
@@ -106,6 +120,7 @@ export function createHostAdapter(
           expectedWorkspaceKey: snapshot.workspaceKey,
           layout,
           manual,
+          omitResources: true,
         },
         signal,
       ),
@@ -121,6 +136,7 @@ export function createHostAdapter(
         }, 80)
       }
       for (const path of watchPaths(snapshot)) {
+        const isOptionalDir = path.endsWith('/.transactions')
         void (async () => {
           const stream = ctx.remote.workspaceFiles.changes(
             sessionId,
@@ -133,10 +149,10 @@ export function createHostAdapter(
               if (frame.kind === 'ready' || frame.kind === 'change')
                 invalidate()
             }
-            if (!controller.signal.aborted)
+            if (!controller.signal.aborted && !isOptionalDir)
               failed(`文件观察已结束：${path}。请手动刷新。`)
           } catch (e) {
-            if (!controller.signal.aborted)
+            if (!controller.signal.aborted && !isOptionalDir)
               failed(
                 `文件观察不可用：${path}；${e instanceof Error ? e.message : String(e)}。请手动刷新。`,
               )

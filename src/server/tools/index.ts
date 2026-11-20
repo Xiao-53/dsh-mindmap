@@ -12,30 +12,97 @@ import { libraryFiles } from '../library-files.ts'
 import { digest } from '../../shared/fingerprint.ts'
 import { fillLayout } from '../../shared/layout.ts'
 import { validateMap } from '../../shared/validate-map.ts'
+import { workspaceComparisonKey, sameWorkspaceKey, normalizeNotePathKey } from '../../shared/workspace-path.ts'
+import type { Diagnostic, MapSnapshot } from '../../shared/map-types.ts'
 import { candidate, validateCandidatePlots } from './candidate.ts'
 import { transactionPort, releaseFailedCreate } from './storage.ts'
 import { Transactions } from '../transaction.ts'
 import { cleanupCreate } from '../cleanup-create.ts'
 import { createSchema, readSchema, previewSchema, applySchema, cleanupCreateSchema } from './schemas.ts'
 import type { MapFilePort } from '../map-files.ts'
-import type { MapSnapshot } from '../../shared/map-types.ts'
+
+export class AtlasToolError extends Error {
+  status: string
+  code: string
+  diagnostics: Diagnostic[]
+  constructor(status: string, message: string, diagnostics: Diagnostic[] = []) {
+    super(JSON.stringify({ status, message, diagnostics }))
+    this.name = 'AtlasToolError'
+    this.status = status
+    this.code = status
+    this.diagnostics = diagnostics
+  }
+}
+
 const text = (value: unknown) => JSON.stringify(value,null,2)+'\n'
 const hash = (value: unknown) => digest(new TextEncoder().encode(JSON.stringify(value)))
 function parameters(schema: z.ZodType): ParameterSchemaSpec {
-  function convert(s: any): any {
-    if(s.anyOf) return {oneOf:s.anyOf.map(convert)}
-    const out: any = {type:s.type ?? 'json'}
-    if(s.enum) out.enum=s.enum
-    if(s.const !== undefined) out.const=s.const
-    if(s.type === 'object') { out.additionalProperties = s.additionalProperties !== false; out.properties = Object.fromEntries(Object.entries(s.properties ?? {}).map(([k,v]) => [k,{...convert(v),...(s.required?.includes(k)?{required:true}:{})}])) }
-    if(s.items) out.items=convert(s.items)
+  const root = z.toJSONSchema(schema) as Record<string, any>
+  const defs: Record<string, any> = root.$defs ?? root.definitions ?? {}
+  function convert(s: any, seen = new Set<string>()): any {
+    if (!s || typeof s !== 'object') return { type: 'json' }
+    if (typeof s.$ref === 'string') {
+      if (seen.has(s.$ref)) return { type: 'json' }
+      const refName = s.$ref.replace(/^#\/(?:\$defs|definitions)\//, '')
+      if (defs[refName]) {
+        const resolved = convert(defs[refName], new Set([...seen, s.$ref]))
+        return typeof s.description === 'string' && !resolved.description
+          ? { ...resolved, description: s.description }
+          : resolved
+      }
+      return { type: 'json' }
+    }
+    if (Array.isArray(s.anyOf) || Array.isArray(s.oneOf)) {
+      const list = (s.anyOf ?? s.oneOf).map((item: any) => convert(item, seen))
+      if (list.length === 1) return list[0]
+      if (list.length >= 2) {
+        return {
+          ...(typeof s.description === 'string' ? { description: s.description } : {}),
+          oneOf: list,
+        }
+      }
+      return { type: 'json' }
+    }
+    if (Array.isArray(s.type)) {
+      if (s.type.length === 1) return convert({ ...s, type: s.type[0] }, seen)
+      if (s.type.length >= 2) {
+        return {
+          ...(typeof s.description === 'string' ? { description: s.description } : {}),
+          oneOf: s.type.map((t: string) => convert({ ...s, type: t }, seen)),
+        }
+      }
+      return { type: 'json' }
+    }
+    const out: any = { type: typeof s.type === 'string' ? s.type : 'json' }
+    if (typeof s.description === 'string') out.description = s.description
+    if (s.enum) out.enum = s.enum
+    if (s.const !== undefined) out.const = s.const
+    if (out.type === 'object') {
+      out.additionalProperties = Boolean(s.additionalProperties)
+      const required = Array.isArray(s.required) ? s.required : []
+      out.properties = Object.fromEntries(
+        Object.entries(s.properties ?? {}).map(([k, v]) => [
+          k,
+          { ...convert(v, seen), ...(required.includes(k) ? { required: true } : {}) },
+        ]),
+      )
+    }
+    if (out.type === 'array' && s.items && !Array.isArray(s.items)) out.items = convert(s.items, seen)
     return out
   }
-  return convert(z.toJSONSchema(schema)).properties
+  return convert(root).properties ?? {}
 }
+const PREVIEW_TTL_MS = 15 * 60 * 1000
+const MAX_PREVIEWS = 128
+
 export function registerTools(ctx: Context) {
   const owner = randomUUID()
-  const previews = new Map<string,{workspace:string;mapId:string;fingerprint:string;request:string;removals:string[];approved:boolean}>()
+  const previews = new Map<string,{workspace:string;mapId:string;fingerprint:string;request:string;removals:string[];approved:boolean;createdAt:number}>()
+  const prunePreviews = () => {
+    const now = Date.now()
+    for (const [k, v] of previews) if (now - v.createdAt > PREVIEW_TTL_MS) previews.delete(k)
+    while (previews.size >= MAX_PREVIEWS) previews.delete(previews.keys().next().value!)
+  }
   async function binding(exec: ToolExecution) {
     if(!exec.agent) throw new AtlasError('session_unavailable','地图工具需要来源会话')
     const policy = ctx.sandboxPolicy.resolve({session:exec.agent.session})
@@ -47,10 +114,11 @@ export function registerTools(ctx: Context) {
     const {scope,policy,port} = await binding(exec)
     if(name === 'atlas_list') {
       z.strictObject({}).parse(raw)
-      const listing = await listMaps(port)
       const library = (await libraryFiles(ctx,scope,exec.signal).read()).data
+      const retired = new Set([...(library.purgedMapIds ?? []), ...(library.retiredCreateIds ?? [])])
+      const listing = await listMaps(port, retired)
       const deleted = [...(library.deletedMapIds ?? []), ...(library.purgedMapIds ?? [])]
-      return {status:'success',maps:listing.maps.filter(m => !deleted.includes(m.id)),diagnostics:listing.diagnostics.filter(d => !(library.purgedMapIds ?? []).includes(d.path.split('/')[1])),incompleteCreates:listing.incompleteCreates}
+      return {status:'success',maps:listing.maps.filter(m => !deleted.includes(m.id)),diagnostics:listing.diagnostics.filter(d => !retired.has(d.path.split('/')[1])),incompleteCreates:listing.incompleteCreates}
     }
     if(name === 'atlas_cleanup_create') {
       const args = cleanupCreateSchema.parse(raw)
@@ -64,6 +132,7 @@ export function registerTools(ctx: Context) {
     const mapId = name === 'atlas_create' ? 'map-'+(await hash({operationId:args.operationId})).slice(0,32) : args.mapId
     const libraryState = (await libraryFiles(ctx,scope,exec.signal).read()).data
     if(libraryState.deletedMapIds?.includes(mapId) || libraryState.purgedMapIds?.includes(mapId)) throw new AtlasError('map_deleted','导图已在回收站')
+    if(name === 'atlas_create' && libraryState.retiredCreateIds?.includes(mapId)) throw new AtlasError('create_discarded','此创建请求已被清理并作废；如需重新创建，请使用新的operationId')
     const txPort = transactionPort(ctx,scope,mapId,policy)
     const tx = new Transactions(txPort,owner)
     if(await txPort.read('.transactions/discarded-create.json')) throw new AtlasError('create_discarded','此创建请求已被清理并作废；如需重新创建，请使用新的operationId')
@@ -86,7 +155,7 @@ export function registerTools(ctx: Context) {
       const selected = snapshot!.map.nodes.filter(n => (!args.nodeIds || args.nodeIds.includes(n.id)) && (!args.viewIds || snapshot!.map.views.some(v => args.viewIds.includes(v.id) && (v.centerNodeId === n.id || v.occurrences.some(o => o.nodeId === n.id)))) && (!args.query || [n.title,n.summary,snapshot!.notes[n.id]].join(' ').toLowerCase().includes(args.query.toLowerCase())))
       const selector = await hash({nodeIds:args.nodeIds,viewIds:args.viewIds,query:args.query})
       let offset=0
-      if(args.cursor) { let cursor; try {cursor=JSON.parse(Buffer.from(args.cursor,'base64url').toString())} catch {throw new AtlasError('invalid_cursor','分页游标无效')}; if(cursor.version!==snapshot!.fingerprint || cursor.selector!==selector || cursor.mapId!==mapId || cursor.workspace!==scope.workspaceRoot) throw new AtlasError('cursor_expired','地图或筛选变化，请重新读取'); offset=cursor.offset; if(!Number.isSafeInteger(offset)||offset<0||offset>selected.length) throw new AtlasError('invalid_cursor','分页位置无效') }
+      if(args.cursor) { let cursor; try {cursor=JSON.parse(Buffer.from(args.cursor,'base64url').toString())} catch {throw new AtlasError('invalid_cursor','分页游标无效')}; if(cursor.version!==snapshot!.fingerprint || cursor.selector!==selector || cursor.mapId!==mapId || !sameWorkspaceKey(cursor.workspace,scope.workspaceRoot)) throw new AtlasError('cursor_expired','地图或筛选变化，请重新读取'); offset=cursor.offset; if(!Number.isSafeInteger(offset)||offset<0||offset>selected.length) throw new AtlasError('invalid_cursor','分页位置无效') }
       const page=selected.slice(offset,offset+10)
       return {status:'success',map:snapshot!.map,notes:Object.fromEntries(page.map(n=>[n.id,snapshot!.notes[n.id]])),fingerprint:snapshot!.fingerprint,notesTotal:selected.length,nextCursor:offset+10<selected.length ? Buffer.from(JSON.stringify({version:snapshot!.fingerprint,selector,mapId,workspace:scope.workspaceRoot,offset:offset+10})).toString('base64url') : null}
     }
@@ -120,21 +189,22 @@ export function registerTools(ctx: Context) {
     const files = new Map<string,string|null>()
     if(!snapshot || JSON.stringify(snapshot.map)!==JSON.stringify(proposal.map)) files.set('map.json',text(proposal.map))
     for(const n of proposal.map.nodes) if(n.notePath) files.set(n.notePath,proposal.notes[n.id] ?? '')
-    for(const n of snapshot?.map.nodes ?? []) if(n.notePath && !proposal.map.nodes.some(next=>next.notePath===n.notePath)) files.set(n.notePath,null)
+    for(const n of snapshot?.map.nodes ?? []) if(n.notePath && !proposal.map.nodes.some(next=>next.notePath && normalizeNotePathKey(next.notePath)===normalizeNotePathKey(n.notePath!))) files.set(n.notePath,null)
     const membership = (map: MapSnapshot['map']) => map.views.map(v=>({id:v.id,groups:v.groups.map(g=>g.id),occurrences:v.occurrences}))
     if(snapshot?.layout && JSON.stringify(membership(snapshot.map))!==JSON.stringify(membership(proposal.map))) files.set('layout.json',text(fillLayout(proposal.map,snapshot.layout,{})))
     const overlay = overlayFiles(port,mapId,files)
     // 候选包含笔记资源解析与布局校验，正式写入前完成。
     await readSnapshot(overlay,mapId)
     if(name === 'atlas_preview') {
+      prunePreviews()
       const token=randomUUID()
-      previews.set(token,{workspace:scope.workspaceRoot,mapId,fingerprint:snapshot!.fingerprint,request:await hash(args.changes),removals:proposal.removals,approved:false})
+      previews.set(token,{workspace:scope.workspaceRoot,mapId,fingerprint:snapshot!.fingerprint,request:await hash(args.changes),removals:proposal.removals,approved:false,createdAt:Date.now()})
       return {status:'preview',previewToken:token,affectedIds:proposal.affectedIds,removals:proposal.removals,summary:'候选已校验，尚未保存'}
     }
     if(policy.mode === 'read-only') throw new AtlasError('permission_denied','当前会话为只读')
     if(proposal.removals.length) {
       const preview=previews.get(args.previewToken)
-      if(!preview || preview.workspace!==scope.workspaceRoot || preview.mapId!==mapId || preview.fingerprint!==snapshot!.fingerprint || preview.request!==await hash(args.changes)) throw new AtlasError('preview_required','删除须先预览当前版本影响')
+      if(!preview || Date.now()-preview.createdAt > PREVIEW_TTL_MS || !sameWorkspaceKey(preview.workspace,scope.workspaceRoot) || preview.mapId!==mapId || preview.fingerprint!==snapshot!.fingerprint || preview.request!==await hash(args.changes)) throw new AtlasError('preview_required','删除须先预览当前版本影响')
       if(!preview.approved) {
         const outcome=await ctx.approval.request({agent:exec.agent!,toolName:name,callId:exec.callId,reason:'删除影响：'+proposal.removals.join('、'),signal:exec.signal})
         if(outcome!=='allowed-once') throw new AtlasError('approval_required','删除未获宿主授权')
@@ -168,6 +238,7 @@ export function registerTools(ctx: Context) {
       if(snapshot) { const live=await readSnapshot({...port,absent:async path=>path===mapPath(mapId,'.transactions/active.json')?true:port.absent(path)},mapId); if(live.fingerprint!==snapshot.fingerprint) throw new AtlasError('version_conflict','提交前版本变化') }
       else if(!await port.absent(mapPath(mapId,'map.json'))) throw new AtlasError('version_conflict','创建目标已存在')
     },async()=>({...result,fingerprint:(await readSnapshot({...port,absent:async path=>path===mapPath(mapId,'.transactions/active.json')?true:port.absent(path)},mapId)).fingerprint}))
+    if(name === 'atlas_apply' && args.previewToken) previews.delete(args.previewToken)
     return saved
     } catch(e) {
       if(reservationReady && errorCode(e) !== 'recovery_required') {
@@ -196,6 +267,6 @@ export function registerTools(ctx: Context) {
       const {scope} = await binding(exec)
       const parsed = args as any
       const id = name === 'atlas_create' ? 'map-'+(await hash({operationId:parsed.operationId})).slice(0,32) : parsed.mapId ?? ''
-      return await serializeMap(`${scope.workspaceRoot}\0${id}`,()=>invoke(name,args,exec))
-    }catch(e){return {status:errorCode(e),message:String(e),diagnostics:e instanceof AtlasError?e.diagnostics:[]}} }}))
+      return await serializeMap(`${workspaceComparisonKey(scope.workspaceRoot)}\0${id}`,()=>invoke(name,args,exec))
+    }catch(e){throw new AtlasToolError(errorCode(e), e instanceof Error ? e.message : String(e), e instanceof AtlasError ? e.diagnostics : [])} }}))
 }

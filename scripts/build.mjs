@@ -6,8 +6,9 @@ import { dirname, join, resolve } from 'node:path'
 const require = createRequire(import.meta.url)
 const plotEntry = require.resolve('jsxgraph')
 const plotSource = await readFile(plotEntry, 'utf8')
-const plotGlobal = 'window.JXG = JXG;'
-if (plotSource.split(plotGlobal).length !== 2) throw new Error('JSXGraph 入口的全局赋值已变化')
+const plotGlobal = /\bwindow\.JXG\s*=\s*JXG\s*;?/g
+const globalMatches = [...plotSource.matchAll(plotGlobal)]
+if (globalMatches.length !== 1) throw new Error(`JSXGraph 入口的全局赋值匹配异常（匹配到 ${globalMatches.length} 处）`)
 const plotLicense = await readFile(resolve(dirname(plotEntry), '../LICENSE.MIT'), 'utf8')
 const plotNotice = '/*! JSXGraph\n' + plotLicense + '\n*/\n'
 const plotLocal = {
@@ -25,8 +26,8 @@ const upstreamCss = await readFile(katexCssPath, 'utf8')
 const katexLicense = await readFile(resolve(dirname(katexCssPath), '../LICENSE'), 'utf8')
 const css = upstreamCss.replace(/([^{}]+)\{([^{}]*)\}/g, (_rule, selector, declarations) => {
   if (selector.trim() === '@font-face') {
-    const woff2 = /url\([^)]+\.woff2\)\s*format\(["']woff2["']\)/.exec(declarations)?.[0]
-    if (!woff2) throw new Error('KaTeX 字体样式缺少 WOFF2')
+    const woff2 = /url\([^)]+\.woff2\)\s*format\(\s*["']?woff2["']?\s*\)/i.exec(declarations)?.[0]
+    if (!woff2) throw new Error('KaTeX 字体样式缺少 WOFF2 格式声明')
     return '@font-face{' + declarations.replace(/src:[^;]+/, 'src:' + woff2) + '}'
   }
   return selector.split(',').map(part => '.dsh-atlas ' + part.trim()).join(',') + '{' + declarations + '}'

@@ -8,9 +8,21 @@ import { MemoryFiles } from '../support/files.ts'
 import { readSnapshot } from '../../src/server/map-files.ts'
 import { pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
+const bootDom = new JSDOM('<!doctype html><div id="root"></div>', { url: 'http://localhost/' })
+const bootOriginals = new Map<string, PropertyDescriptor | undefined>()
+for (const [k, v] of [['window', bootDom.window], ['document', bootDom.window.document], ['Element', bootDom.window.Element], ['HTMLElement', bootDom.window.HTMLElement], ['Node', bootDom.window.Node]] as const) {
+  bootOriginals.set(k, Object.getOwnPropertyDescriptor(globalThis, k))
+  Object.defineProperty(globalThis, k, { value: v, configurable: true, writable: true })
+}
 const { AtlasPane, RenderNote, Icon, createOfflineHtml } = await import(
   pathToFileURL(resolve('node_modules/.cache/dsh-mindmap/ui.mjs')).href
 )
+await import('react-dom/client')
+for (const [k, orig] of bootOriginals) {
+  if (orig) Object.defineProperty(globalThis, k, orig)
+  else Reflect.deleteProperty(globalThis, k)
+}
+bootDom.window.close()
 import { loadPrototype } from '../support/prototype.ts'
 import { runInNewContext } from 'node:vm'
 
@@ -34,18 +46,20 @@ test('所有 14 个节点 SVG 与 v17 元素一致；离线导出不泄露工作
   assert.ok(!exported.includes('src="http'))
 })
 
-test('笔记原始 HTML、脚本、事件及危险协议不执行，合法本地图片经白名单显示', () => {
+test('笔记原始 HTML、脚本、事件及危险协议不执行，合法本地图片经白名单显示，非图片本地链接显示只读提示', () => {
   const markup = renderToStaticMarkup(
     createElement(RenderNote, {
       nodeId: 'a',
       resources: { 'a:../assets/a.png': 'data:image/png;base64,aGVsbG8=' },
       markdown:
-        '## 核心理解\n<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\n[坏链接](javascript:alert%281%29)\n\n![本地图](../assets/a.png)\n\nE = mc²',
+        '## 核心理解\n<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\n[坏链接](javascript:alert%281%29)\n\n[本地文档](../assets/doc.pdf)\n\n![本地图](../assets/a.png)\n\nE = mc²',
     }),
   )
   assert.ok(!markup.includes('<script'))
   assert.ok(!markup.includes('<img src="x"'))
   assert.ok(!markup.includes('href="javascript:'))
+  assert.ok(!markup.includes('data:application/pdf'))
+  assert.ok(markup.includes('<span>本地文档</span>（仅支持网络链接与本地图片）'))
   assert.ok(markup.includes('&lt;script&gt;'))
   assert.ok(markup.includes('data:image/png;base64'))
   assert.ok(markup.includes('E = mc²'))
@@ -164,6 +178,18 @@ test('首期面板实际挂载、加载、搜索、打开/关闭笔记和复制�
       snapshot = { ...snapshot, layout: layout as any, fingerprint: 'saved' }
       return snapshot
     },
+    commitEdit: async (req: any) => {
+      if (req.edit.kind === 'layout') {
+        const nextLayout = {
+          schemaVersion: 2 as const,
+          mapId: snapshot.map.id,
+          views: [...(snapshot.layout?.views ?? []).filter((v: any) => v.viewId !== req.edit.viewId), req.edit.layout],
+        }
+        saves.push({ layout: nextLayout, manual: req.edit.layout.nodes.some((n: any) => n.manual) })
+        snapshot = { ...snapshot, layout: nextLayout, fingerprint: 'saved-' + saves.length }
+      }
+      return { snapshot, committedFingerprint: snapshot.fingerprint, noChange: false }
+    },
     watch: () => () => {},
   }
   const tab: any = {
@@ -187,9 +213,6 @@ test('首期面板实际挂载、加载、搜索、打开/关闭笔记和复制�
   const { createRoot } = await import('react-dom/client')
   const container = dom.window.document.querySelector('#root')!
   const root = createRoot(container)
-  let accepted = false
-  const drafts: any[] = []
-  const insertText = (text:string, span:any) => { drafts.push({text,span}); return accepted }
   const references: any[] = []
   const insertReference = (ref:any) => { references.push(ref); return true }
   try {
@@ -203,7 +226,6 @@ test('首期面板实际挂载、加载、搜索、打开/关闭笔记和复制�
           useTabInfo: () => ({ tab }),
           inputActions,
           insertReference,
-          insertText,
         }),
       )
     })
@@ -220,7 +242,8 @@ test('首期面板实际挂载、加载、搜索、打开/关闭笔记和复制�
     assert.ok(container.textContent?.includes('总览'))
     const draggable = container.querySelector<HTMLElement>('[data-node="a"]')!
     const leaf = container.querySelector('[data-node="b"]')!
-    const beforeX = Number.parseFloat(draggable.style.left)
+    const parseX = (el: HTMLElement) => Number.parseFloat(/translate\((-?\d+(?:\.\d+)?)px/.exec(el.style.transform)?.[1] ?? el.style.left)
+    const beforeX = parseX(draggable)
     await act(async () => {
       draggable.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles:true, button:0, clientX:100, clientY:100 }))
       draggable.dispatchEvent(new dom.window.MouseEvent('pointermove', { bubbles:true, clientX:140, clientY:120 }))
@@ -229,7 +252,7 @@ test('首期面板实际挂载、加载、搜索、打开/关闭笔记和复制�
       draggable.dispatchEvent(new dom.window.MouseEvent('pointerup', { bubbles:true, clientX:140, clientY:120 }))
       draggable.click()
     })
-    assert.equal(Number.parseFloat(draggable.style.left), beforeX+40)
+    assert.equal(parseX(draggable), beforeX+40)
     assert.equal(container.querySelector('.inspector'), null)
     await act(async () => {
       leaf.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles:true, clientX:120,clientY:120 }))
@@ -239,25 +262,6 @@ test('首期面板实际挂载、加载、搜索、打开/关闭笔记和复制�
     })
     assert.equal(JSON.parse(references.at(-1).ref).kind, 'node')
     assert.equal(JSON.parse(references.at(-1).ref).nodeId, 'b')
-    await act(async () => {
-      leaf.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles:true, clientX:120,clientY:120 }))
-    })
-    await act(async () => {
-      Array.from(container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(b => b.textContent?.includes('提问 DSH'))!.click()
-    })
-    assert.ok(container.querySelector('[aria-label="问题草稿"]'))
-    await act(async () => {
-      container.querySelector('form')!.dispatchEvent(new dom.window.Event('submit', { bubbles:true,cancelable:true }))
-    })
-    assert.ok(container.querySelector('[aria-label="问题草稿"]'))
-    assert.ok(container.querySelector('[role="alert"]'))
-    accepted = true
-    await act(async () => {
-      container.querySelector('form')!.dispatchEvent(new dom.window.Event('submit', { bubbles:true,cancelable:true }))
-    })
-    assert.equal(container.querySelector('[aria-label="问题草稿"]'), null)
-    assert.equal(drafts.length, 2)
-    assert.equal(drafts[1].span.draftRev, 1)
     assert.equal(saves.at(-1).manual, true)
     assert.equal(saves.at(-1).layout.views.find((v:any) => v.viewId === 'root').nodes.find((n:any) => n.nodeId === 'a').manual, true)
     await act(async () => {
@@ -283,10 +287,39 @@ test('首期面板实际挂载、加载、搜索、打开/关闭笔记和复制�
     assert.equal(container.querySelector('[aria-label="节点操作"]'), null)
     assert.equal(dom.window.document.activeElement, leaf)
     await act(async () => {
+      container.querySelector('.reading-pane')!.dispatchEvent(
+        new dom.window.KeyboardEvent('keydown', { key: 'z', metaKey: true, bubbles: true }),
+      )
+    })
+    assert.equal(parseX(draggable), beforeX)
+    await act(async () => {
+      container.querySelector('.reading-pane')!.dispatchEvent(
+        new dom.window.KeyboardEvent('keydown', { key: 'Z', metaKey: true, shiftKey: true, bubbles: true }),
+      )
+    })
+    assert.equal(parseX(draggable), beforeX + 40)
+    await act(async () => {
       leaf.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
     })
     assert.ok(container.querySelector('.inspector'))
-    assert.ok(container.textContent?.includes('复制笔记'))
+    assert.ok(container.textContent?.includes('复制内容'))
+    await act(async () => {
+      draggable.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 100, clientY: 100 }))
+      draggable.dispatchEvent(new dom.window.MouseEvent('pointermove', { bubbles: true, clientX: 115, clientY: 100 }))
+    })
+    await act(async () => {
+      tab.navigation = { revision: 2, params: { mapId: 'map-b', autoOpen: true } }
+      root.render(createElement(AtlasPane, {
+        host, sessionId: 's1', actions, useStore,
+        useTabInfo: () => ({ tab }), inputActions, insertReference,
+      }))
+    })
+    assert.ok(container.textContent?.includes('AI 已完成导图更新'))
+    assert.ok(container.querySelector('.inspector'))
+    await act(async () => {
+      Array.from(container.querySelectorAll<HTMLButtonElement>('.status-region button')).find(b => b.textContent === '忽略')?.click()
+      draggable.dispatchEvent(new dom.window.MouseEvent('pointercancel', { bubbles: true }))
+    })
     await act(async () => {
       container
         .querySelector('[aria-label="关闭笔记"]')!
@@ -319,7 +352,7 @@ test('首期面板实际挂载、加载、搜索、打开/关闭笔记和复制�
       tab.navigation = { revision: 1, params: { mapId: 'map-a' } }
       root.render(createElement(AtlasPane, {
         host, sessionId: 's1', actions, useStore,
-        useTabInfo: () => ({ tab }), inputActions, insertReference, insertText,
+        useTabInfo: () => ({ tab }), inputActions, insertReference,
       }))
     })
     assert.ok(container.querySelector('.map-scene'))
@@ -342,6 +375,7 @@ test('管理页支持直接拖到目标导图下方、展开文件夹内不冒�
     ['Element', dom.window.Element],
     ['HTMLElement', dom.window.HTMLElement],
     ['Node', dom.window.Node],
+    ['IS_REACT_ACT_ENVIRONMENT', true],
   ] as const) {
     originals.set(key, Object.getOwnPropertyDescriptor(globalThis, key))
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true })
@@ -402,7 +436,7 @@ test('管理页支持直接拖到目标导图下方、展开文件夹内不冒�
         actions: { selectMap: () => {}, setReading: () => {}, setPending: () => {}, setCamera: () => {} },
         useStore, useTabInfo: () => ({ tab }),
         inputActions: { captureInsertion: () => ({ start: 0, end: 0, draftRev: 1 }) },
-        insertReference: () => true, insertText: () => false,
+        insertReference: () => true,
       }))
     })
     const rowByTitle = (title: string) =>

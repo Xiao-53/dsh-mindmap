@@ -4,6 +4,7 @@ import { layoutSchema } from '../shared/validate-layout.ts'
 import { imageAssetSchema, validateImage } from '../shared/image-resource.ts'
 import { digest, canonicalJson } from '../shared/fingerprint.ts'
 import { manualPlotDelta } from '../shared/note-markdown.ts'
+import { workspaceComparisonKey, normalizeNotePathKey } from '../shared/workspace-path.ts'
 import type { MapSnapshot } from '../shared/map-types.ts'
 import { candidate } from './tools/candidate.ts'
 import { transactionPort } from './tools/storage.ts'
@@ -18,15 +19,32 @@ export const editSchema = z.discriminatedUnion('kind', [
   z.strictObject({kind:z.literal('layout'),viewId:idSchema,layout:layoutSchema.shape.views.element}),
 ])
 export type Edit = z.infer<typeof editSchema>
-export const commitEditSchema = z.strictObject({op:z.literal('commitEdit'),mapId:idSchema,expectedWorkspaceKey:z.string().min(1),expectedFingerprint:z.string().min(1),operationId:idSchema,removedPlots:z.array(idSchema).max(256).optional(),edit:editSchema})
+export const commitEditSchema = z.strictObject({op:z.literal('commitEdit'),mapId:idSchema,expectedWorkspaceKey:z.string().min(1),expectedFingerprint:z.string().min(1),operationId:idSchema,removedPlots:z.array(idSchema).max(256).optional(),omitResources:z.boolean().optional(),edit:editSchema})
 export type EditRequest = z.infer<typeof commitEditSchema>
-export const editStatusSchema = z.strictObject({op:z.literal('editStatus'),mapId:idSchema,expectedWorkspaceKey:z.string().min(1),operationId:idSchema,requestDigest:z.string().regex(/^[a-f0-9]{64}$/)})
+export const editStatusSchema = z.strictObject({op:z.literal('editStatus'),mapId:idSchema,expectedWorkspaceKey:z.string().min(1),operationId:idSchema,requestDigest:z.string().regex(/^[a-f0-9]{64}$/),omitResources:z.boolean().optional()})
 export type EditStatusRequest = z.infer<typeof editStatusSchema>
 export type EditStatusResult = {state:'committed'|'absent';snapshot:MapSnapshot;committedFingerprint?:string}
 // 仅本宿主会话中保留从完整快照读出的原路径，UI 不接收任意写入路径。
 type PlotChanges = { operationId: string; request: string; removed: [string, string][]; restored: string[] }
 type EditMemory = { fingerprint: string; paths: Map<string, string>; plots: Map<string, string>; pending?: PlotChanges }
+const MAX_NOTE_PATHS = 128
 const notePaths = new Map<string, EditMemory>()
+
+function touchEditMemory(key: string, memory: EditMemory) {
+  notePaths.delete(key)
+  notePaths.set(key, memory)
+  while (notePaths.size > MAX_NOTE_PATHS) notePaths.delete(notePaths.keys().next().value!)
+}
+
+export function evictEditMemory(workspaceRoot: string, mapId: string) {
+  const targetWs = workspaceComparisonKey(workspaceRoot)
+  for (const key of [...notePaths.keys()]) {
+    try {
+      const [wsKey, id] = JSON.parse(key) as [string, string]
+      if (wsKey === targetWs && id === mapId) notePaths.delete(key)
+    } catch { /* ignore malformed key */ }
+  }
+}
 
 function acceptEditMemory(memory: EditMemory | undefined, operationId: string, request: string, fingerprint: string) {
   const pending = memory?.pending
@@ -40,7 +58,7 @@ function acceptEditMemory(memory: EditMemory | undefined, operationId: string, r
   memory.pending = undefined
   memory.fingerprint = fingerprint
 }
-const noteKey=(scope:WorkspaceFileScope,mapId:string)=>JSON.stringify([scope.sessionId,scope.workspaceRoot,mapId])
+const noteKey=(scope:WorkspaceFileScope,mapId:string)=>JSON.stringify([workspaceComparisonKey(scope.workspaceRoot),mapId,scope.sessionId])
 export async function editStatus(ctx:Context,scope:WorkspaceFileScope,req:EditStatusRequest,signal:AbortSignal):Promise<EditStatusResult> {
   const port=createHostFiles(ctx,scope,signal)
   const readOnly:TransactionPort={
@@ -49,15 +67,16 @@ export async function editStatus(ctx:Context,scope:WorkspaceFileScope,req:EditSt
     remove:async()=>{throw new AtlasError('permission_denied','回执查询不删除')},
   }
   const receipt=await new Transactions(readOnly,crypto.randomUUID()).replay(req.operationId,req.requestDigest) as {committedFingerprint?:string}|undefined
-  const snapshot=await readSnapshot(port,req.mapId)
+  const snapshot=await readSnapshot(port,req.mapId,false,{omitResources:req.omitResources})
   if(receipt && snapshot.fingerprint!==receipt.committedFingerprint)throw new AtlasError('version_conflict','该操作已提交，但磁盘已有后续版本；本地副本保留')
   const memory=notePaths.get(noteKey(scope,req.mapId))
+  if (memory) touchEditMemory(noteKey(scope, req.mapId), memory)
   if (receipt) acceptEditMemory(memory, req.operationId, req.requestDigest, snapshot.fingerprint)
   return {state:receipt?'committed':'absent',snapshot,committedFingerprint:receipt?.committedFingerprint}
 }
 export function overlayFiles(port: MapFilePort, mapId: string, files: Map<string,string|null>): MapFilePort {
   const relative=(path:string)=>path.slice(mapPath(mapId,'map.json').length-'map.json'.length)
-  return {...port, absent:async path=>path===mapPath(mapId,'.transactions/active.json') ? true : files.has(relative(path)) ? files.get(relative(path))===null : port.absent(path),
+  return {...port, verify: undefined, absent:async path=>path===mapPath(mapId,'.transactions/active.json') ? true : files.has(relative(path)) ? files.get(relative(path))===null : port.absent(path),
     read:async(path,id,assetsOnly)=>{
       const key=relative(path)
       if (!files.has(key)) return port.read(path,id,assetsOnly)
@@ -74,20 +93,22 @@ export async function fileMutations(port: TransactionPort, files: Map<string,str
 }
 export async function commitEdit(ctx:Context,scope:WorkspaceFileScope,req:EditRequest,policy:SandboxExecutionPolicy,signal:AbortSignal) {
   if(new TextEncoder().encode(JSON.stringify(req)).length>24*1024*1024)throw new AtlasError('resource_too_large','请求超过 24 MiB')
+  const { omitResources, ...canonicalReq } = req
   const port=createHostFiles(ctx,scope,signal,policy), txPort=transactionPort(ctx,scope,req.mapId,policy)
-  const tx=new Transactions(txPort,crypto.randomUUID()), request=await digest(canonicalJson(req))
+  const tx=new Transactions(txPort,crypto.randomUUID()), request=await digest(canonicalJson(canonicalReq))
   const replay=await tx.replay(req.operationId,request) as {committedFingerprint:string}|undefined
   if(replay) {
-    const snapshot=await readSnapshot(port,req.mapId)
+    const snapshot=await readSnapshot(port,req.mapId,false,{omitResources})
     if(snapshot.fingerprint!==replay.committedFingerprint)throw new AtlasError('version_conflict','该操作已保存，但随后出现外部修改，请重新读取')
     acceptEditMemory(notePaths.get(noteKey(scope, req.mapId)), req.operationId, request, snapshot.fingerprint)
     return {...replay,snapshot}
   }
-  const snapshot=await readSnapshot(port,req.mapId)
+  const snapshot=await readSnapshot(port,req.mapId,false,{omitResources:true})
   if(snapshot.fingerprint!==req.expectedFingerprint)throw new AtlasError('version_conflict','地图已变化，保留本地修改')
   const memoryKey=noteKey(scope,req.mapId)
   let memory=notePaths.get(memoryKey)
-  if(!memory || memory.fingerprint!==snapshot.fingerprint){memory={fingerprint:snapshot.fingerprint,paths:new Map(),plots:new Map()};notePaths.set(memoryKey,memory)}
+  if(!memory || memory.fingerprint!==snapshot.fingerprint){memory={fingerprint:snapshot.fingerprint,paths:new Map(),plots:new Map()}}
+  touchEditMemory(memoryKey, memory)
   for(const n of snapshot.map.nodes)if(n.notePath)memory.paths.set(n.id,n.notePath)
   const plotChanges: PlotChanges = { operationId: req.operationId, request, removed: [], restored: [] }
   const files=new Map<string,string|null>(), json=(v:unknown)=>JSON.stringify(v,null,2)+'\n'
@@ -108,7 +129,7 @@ export async function commitEdit(ctx:Context,scope:WorkspaceFileScope,req:EditRe
     const proposal=candidate(snapshot,[{op:'update_node',nodeId:e.nodeId,fields:{title:e.title,summary:e.summary}},e.markdown?{op:'set_note',nodeId:e.nodeId,markdown:e.markdown}:{op:'remove_note',nodeId:e.nodeId}])
     const note=proposal.map.nodes.find(n=>n.id===e.nodeId)!
     if(e.markdown && !node.notePath && memory.paths.has(e.nodeId))note.notePath=memory.paths.get(e.nodeId)
-    if(note.notePath && snapshot.map.nodes.some(n=>n.id!==e.nodeId && n.notePath===note.notePath))throw new AtlasError('invalid_data','原笔记路径已被其他节点占用')
+    if(note.notePath && snapshot.map.nodes.some(n=>n.id!==e.nodeId && n.notePath && normalizeNotePathKey(n.notePath)===normalizeNotePathKey(note.notePath!)))throw new AtlasError('invalid_data','原笔记路径已被其他节点占用')
     if(JSON.stringify(proposal.map)!==JSON.stringify(snapshot.map))files.set('map.json',json(proposal.map))
     if(note.notePath) {
       // 恢复旧路径或首次创建时不接管磁盘上的未知文件。
@@ -139,7 +160,7 @@ export async function commitEdit(ctx:Context,scope:WorkspaceFileScope,req:EditRe
     const others=(snapshot.layout?.views??[]).filter(v=>v.viewId!==e.viewId).map(v=>({...v,mode:v.mode??'vertical'}))
     files.set('layout.json',json({schemaVersion:2,mapId:snapshot.map.id,views:[...others,e.layout]}))
   }
-  const proposal=await readSnapshot(overlayFiles(port,req.mapId,files),req.mapId)
+  const proposal=await readSnapshot(overlayFiles(port,req.mapId,files),req.mapId,false,{omitResources:true})
   for(const relative of files.keys()) {
     if(relative.endsWith('.image.json')&&!proposal.files.some(f=>f.path===mapPath(req.mapId,relative)))
       throw new AtlasError('invalid_data','新增图片未被正文引用')
@@ -148,15 +169,18 @@ export async function commitEdit(ctx:Context,scope:WorkspaceFileScope,req:EditRe
   const ordered=new Map([...files].sort(([a],[b])=>Number(b.endsWith('.image.json'))-Number(a.endsWith('.image.json'))))
   const mutations=await fileMutations(txPort,ordered)
   for(const change of mutations)if(change.before && !snapshot.files.some(f=>f.path===mapPath(req.mapId,change.path)))throw new AtlasError('version_conflict','新文件目标已被外部占用')
-  if(!mutations.length)return {operationId:req.operationId,committedFingerprint:snapshot.fingerprint,snapshot,noChange:true}
+  if(!mutations.length) {
+    const cleanSnapshot = omitResources ? snapshot : await readSnapshot(port,req.mapId)
+    return {operationId:req.operationId,committedFingerprint:cleanSnapshot.fingerprint,snapshot:cleanSnapshot,noChange:true}
+  }
   const livePort=overlayFiles(port,req.mapId,new Map())
   memory.pending = plotChanges
   const result=await tx.commit(req.operationId,request,mutations,{operationId:req.operationId,noChange:false},async()=>{
     signal.throwIfAborted()
-    if((await readSnapshot(livePort,req.mapId)).fingerprint!==req.expectedFingerprint)throw new AtlasError('version_conflict','提交前地图变化')
+    if((await readSnapshot(livePort,req.mapId,false,{omitResources:true})).fingerprint!==req.expectedFingerprint)throw new AtlasError('version_conflict','提交前地图变化')
   },async()=>{
     signal.throwIfAborted()
-    const after=await readSnapshot(livePort,req.mapId)
+    const after=await readSnapshot(livePort,req.mapId,false,{omitResources:true})
     const changes=new Set(mutations.map(change=>mapPath(req.mapId,change.path)))
     if(after.files.length!==proposal.files.length || proposal.files.some(expected=>{
       const actual=after.files.find(f=>f.path===expected.path)
@@ -165,7 +189,7 @@ export async function commitEdit(ctx:Context,scope:WorkspaceFileScope,req:EditRe
     return {operationId:req.operationId,noChange:false,committedFingerprint:after.fingerprint}
   }) as {committedFingerprint:string}
   acceptEditMemory(memory, req.operationId, request, result.committedFingerprint)
-  const saved=await readSnapshot(port,req.mapId)
+  const saved=await readSnapshot(port,req.mapId,false,{omitResources})
   if(saved.fingerprint!==result.committedFingerprint)throw new AtlasError('version_conflict','保存后出现外部修改')
   return {...result,snapshot:saved}
 }

@@ -123,6 +123,16 @@ test('真实官方文件服务：分页、条件布局保存及 junction 越界�
     await assert.rejects(library.save({ ...orderedData, folderMapOrders: { missing: [firstId] } }, savedOrdered.version))
     await assert.rejects(library.save({ ...orderedData, rootMapOrder: [firstId] }, savedOrdered.version))
     assert.equal((await readSnapshot(port, firstId)).fingerprint, fresh.fingerprint)
+    const cleanupRes = JSON.parse(await ctx.dshAtlas.request(scope, JSON.stringify({
+      op: 'cleanupOrphanAssets', mapId: 'map-a', expectedFingerprint: result.value.fingerprint, expectedWorkspaceKey: directory,
+    }), signal))
+    assert.equal(cleanupRes.ok, true, cleanupRes.message)
+    assert.deepEqual(cleanupRes.value.deletedAssetIds, [])
+    const compactRes = JSON.parse(await ctx.dshAtlas.request(scope, JSON.stringify({
+      op: 'compactRetired', expectedWorkspaceKey: directory,
+    }), signal))
+    assert.equal(compactRes.ok, true, compactRes.message)
+    assert.deepEqual(compactRes.value.compactedIds, [])
     const outside = join(directory, 'outside')
     await mkdir(outside)
     await writeFile(join(outside, 'secret.md'), '不可读取')

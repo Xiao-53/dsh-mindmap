@@ -1,11 +1,13 @@
 import { useLayoutEffect, useMemo, useRef } from 'react'
 import { isFormula, type FormulaToken } from '../shared/note-markdown.ts'
 import { formulaElement } from './note-math.ts'
+import { safeHref } from './note-rich-text.ts'
 import type { Token, Tokens } from 'marked'
 import type { ReactNode } from 'react'
 import { noteSections } from '../shared/note-sections.ts'
 import { isPlot, type PlotData } from '../shared/note-plot.ts'
 import { NotePlot } from './components/NotePlot.tsx'
+export { safeHref }
 function Formula({ token }: { token: FormulaToken }) {
   const host = useRef<HTMLElement | null>(null)
   useLayoutEffect(() => {
@@ -14,9 +16,6 @@ function Formula({ token }: { token: FormulaToken }) {
   return token.type === 'formulaBlock'
     ? <div ref={element => { host.current = element }}/>
     : <span ref={element => { host.current = element }}/>
-}
-export function safeHref(href: string): string | undefined {
-  return /^(https?:\/\/|mailto:|#)/i.test(href) ? href : undefined
 }
 function renderTokens(
   tokens: Token[],
@@ -79,13 +78,13 @@ function renderTokens(
       }
       case 'link': {
         const link = t as Tokens.Link
-        const href = safeHref(link.href) ?? resources[`${nodeId}:${link.href}`]
+        const href = safeHref(link.href)
         return href ? (
           <a key={key} href={href} target="_blank" rel="noreferrer noopener">
             {inner}
           </a>
         ) : (
-          <span key={key}>{inner}（链接不可用）</span>
+          <span key={key}>{inner}（仅支持网络链接与本地图片）</span>
         )
       }
       case 'image': {

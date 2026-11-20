@@ -1,6 +1,6 @@
 {
   "name": "@xiao-53/dsh-mindmap",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "DSH 原生侧栏思维导图，支持 Markdown 笔记、布局保存和离线 HTML 导出。",
   "license": "MIT",
   "keywords": [
@@ -40,12 +40,15 @@
       "platform": "web",
       "inject": [
         "@deepseek-ai/dsh-api-gateway",
+        "@deepseek-ai/dsh-api-session-controller",
         "@deepseek-ai/dsh-api-workspace-files",
-        "@deepseek-ai/dsh-client-ui-renderer",
-        "@deepseek-ai/dsh-client-ui-sidebar-right",
-        "@deepseek-ai/dsh-client-ui-input-trigger",
+        "@deepseek-ai/dsh-client-store",
         "@deepseek-ai/dsh-client-ui-conversation",
-        "@deepseek-ai/dsh-client-ui-session"
+        "@deepseek-ai/dsh-client-ui-input-trigger",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-ui-slots"
       ]
     }
   },
@@ -55,12 +58,15 @@
     "test": "node --experimental-strip-types --test tests/shared/*.test.ts tests/integration/*.test.ts",
     "prepack": "npm run build",
     "pack:plugin": "node scripts/pack-release.mjs",
-    "pretest": "npm run build && node scripts/build-ui-tests.mjs"
+    "pretest": "npm run build && node scripts/build-ui-tests.mjs",
+    "verify:layer1": "node scripts/e2e-env.mjs layer1",
+    "verify:e2e:start": "node scripts/e2e-env.mjs start",
+    "verify:e2e:serve": "node scripts/e2e-env.mjs serve",
+    "verify:e2e:stop": "node scripts/e2e-env.mjs stop"
   },
   "dependencies": {
     "katex": "0.19.1",
-    "marked": "17.0.1",
-    "zod": "4.6.6"
+    "marked": "17.0.1"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.1.0",
@@ -68,7 +74,8 @@
     "@deepseek-ai/dsh-skill": ">=0.2.2-alpha.3 <0.3.0-0",
     "@deepseek-ai/dsh-tools": ">=0.2.2-alpha.3 <0.3.0-0",
     "@deepseek-ai/dsh-typert-protocol": ">=0.2.2-alpha.3 <0.3.0-0",
-    "react": "^18.2.0"
+    "react": "^18.2.0",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@codemirror/commands": "6.11.1",
@@ -112,6 +119,7 @@
     "jsxgraph": "1.14.3",
     "react": "^18.2.0",
     "react-dom": "^18.3.1",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "zod": "4.6.6"
   }
 }

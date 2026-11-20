@@ -6,16 +6,18 @@ export interface SelectionSnapshot {
 type Boundary = { node: Node; offset: number }
 type TextPart = { node: Text | HTMLElement; text: string; formula: boolean }
 const formulaSelector = '[data-note-formula]'
+const isElement = (node: unknown): node is HTMLElement =>
+  typeof node === 'object' && node !== null && (node as Node).nodeType === 1
 
 function parts(root: HTMLElement, skipPlots = false): TextPart[] {
   const result: TextPart[] = []
   function visit(node: Node) {
-    if (node instanceof Element && (node.hasAttribute('data-plot-art') ||
+    if (isElement(node) && (node.hasAttribute('data-plot-art') ||
       (skipPlots && node.hasAttribute('data-note-locked-plot')) || node.matches('.note-plot-menu,.note-image-remove,[hidden]'))) return
-    if (node.nodeType === Node.TEXT_NODE) {
+    if (node.nodeType === 3) {
       const text = node as Text
       result.push({ node: text, text: text.data, formula: false })
-    } else if (node instanceof HTMLElement && node.hasAttribute('data-note-formula')) {
+    } else if (isElement(node) && node.hasAttribute('data-note-formula')) {
       result.push({ node, text: node.dataset.noteFormula ?? '', formula: true })
     } else {
       for (const child of node.childNodes) visit(child)
@@ -68,7 +70,7 @@ export function noteProjection(root: HTMLElement, skipPlots = false) {
 }
 
 export function copyFormulaSelection(root: HTMLElement, event: ClipboardEvent) {
-  if (event.target instanceof Element && event.target.closest('textarea,input,.note-live-editor')) return
+  if (isElement(event.target) && event.target.closest('textarea,input,.note-live-editor')) return
   const selection = root.ownerDocument.getSelection()
   if (!selection?.rangeCount || !event.clipboardData) return
   const captured = captureSelection(root, selection)

@@ -5,10 +5,12 @@ export interface LayoutSaveStatus {
   save: () => void
   discard: () => void
   canDiscard: boolean
+  cleanupAssets?: () => Promise<void>
 }
 const labels = { saved: '已保存', saving: '正在保存', unsaved: '未保存', error: '保存未完成' }
 export function SaveStatus({ status }: { status: LayoutSaveStatus }) {
   const [open,setOpen] = useState(false)
+  const [cleaning, setCleaning] = useState(false)
   const root = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
   useEffect(() => {
@@ -31,6 +33,12 @@ export function SaveStatus({ status }: { status: LayoutSaveStatus }) {
       {status.state !== 'saved' && <div className="layout-save-actions">
         <button disabled={status.state === 'saving'} onClick={status.save}>{status.state === 'error' ? '重试保存' : '保存修改'}</button>
         {status.canDiscard && <button disabled={status.state === 'saving'} onClick={() => { status.discard(); setOpen(false) }}>放弃并重载</button>}
+      </div>}
+      {status.state === 'saved' && status.cleanupAssets && <div className="layout-save-actions">
+        <button disabled={cleaning} onClick={() => {
+          setCleaning(true)
+          void status.cleanupAssets!().finally(() => { setCleaning(false); setOpen(false) })
+        }}>{cleaning ? '正在清理…' : '清理未引用图片'}</button>
       </div>}
     </div>}
   </div>

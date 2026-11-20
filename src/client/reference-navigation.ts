@@ -5,13 +5,14 @@ import type { ReferenceSnapshot } from './reference-source.ts'
 import { locateNoteAnchor } from '../shared/note-position.ts'
 import { noteBlocks, notePlots } from '../shared/note-markdown.ts'
 import { plotContent } from '../shared/note-plot.ts'
+import { sameWorkspaceKey } from '../shared/workspace-path.ts'
 export function resolveReference(
   ref: ReferenceSnapshot,
   snapshot: MapSnapshot,
 ): { viewId?: string; nodeId?: string; message?: string } {
   if (
     ref.mapId !== snapshot.map.id ||
-    ref.workspaceKey !== snapshot.workspaceKey
+    !sameWorkspaceKey(ref.workspaceKey, snapshot.workspaceKey)
   )
     return { message: '来源工作区或地图已失效；保留原文快照。' }
   const node = snapshot.map.nodes.find((n) => n.id === ref.nodeId)

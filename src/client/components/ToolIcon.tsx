@@ -1,5 +1,5 @@
 // 工具栏图标沿用 v17 的 SVG；宿主新增的返回目录、刷新、关闭使用相同笔触。
-export function ToolIcon({ name }: { name: 'search' | 'export' | 'note' | 'back' | 'library' | 'refresh' | 'close' }) {
+export function ToolIcon({ name }: { name: 'search' | 'export' | 'note' | 'back' | 'library' | 'refresh' | 'close' | 'sun' | 'moon' }) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     {name === 'search' && <><circle cx="10.8" cy="10.8" r="6.6"/><path d="m16 16 4 4"/></>}
     {name === 'export' && <path d="M12 3v11m-4-4 4 4 4-4M5 16v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/>}
@@ -8,5 +8,7 @@ export function ToolIcon({ name }: { name: 'search' | 'export' | 'note' | 'back'
     {name === 'library' && <><path d="M3 7V5h6l2 3h10v12H3V7z"/></>}
     {name === 'refresh' && <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8M21 3v5h-5"/>}
     {name === 'close' && <path d="m6 6 12 12M6 18 18 6"/>}
+    {name === 'moon' && <path d="M20.5 14.5A8.5 8.5 0 1 1 9.5 3.5a7 7 0 0 0 11 11Z"/>}
+    {name === 'sun' && <><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M4.9 4.9l1.6 1.6M17.5 17.5l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.9 19.1l1.6-1.6M17.5 6.5l1.6-1.6"/></>}
   </svg>
 }

@@ -7,5 +7,18 @@ export const name = 'dsh-mindmap'
 export const inject = ['fs', 'workspaceFiles', 'typert', 'sessions', 'sandboxPolicy']
 export function apply(ctx: Context): void {
   new MapService(ctx)
-  ctx.inject(['tools', 'skills', 'approval'], api => { registerTools(api); registerAuthoring(api) })
+  ctx.inject(['tools', 'approval'], api => {
+    try {
+      registerTools(api)
+    } catch (error) {
+      api.logger?.warn?.('思维导图工具注册失败，已降级跳过', error)
+    }
+  })
+  ctx.inject(['skills'], api => {
+    try {
+      registerAuthoring(api)
+    } catch (error) {
+      api.logger?.warn?.('思维导图 skill 注册失败，已降级跳过', error)
+    }
+  })
 }
