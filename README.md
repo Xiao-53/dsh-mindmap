@@ -6,13 +6,13 @@
 
 ## 功能
 
-- **原生侧栏**：查看节点、关系、分组和可逐层进入的子图，阅读 Markdown 详情。
+- **原生侧栏**：查看节点、关系、分组和可逐层进入的子图，阅读 Markdown 详情；支持暗色模式（自动同步 DSH 宿主主题，也可在面板内手动切换）。
 - **对话协作**：通过 `/mindmap` 创建、读取、补充和修改导图；请求由用户手动发送。
 - **内容引用**：将节点、选中的正文、图表或正文插入位置加入 DSH 输入框，通过引用回到来源。
 - **节点编辑**：标题、摘要和 Markdown 正文可原位编辑并自动保存，支持 LaTeX 实时预览、图片和整图拖放，以及撤销和重做。
 - **布局与管理**：拖动节点或切换排版，支持撤销与重做。可搜索导图，支持单层文件夹整理、直接拖放到指定导图上下排序与跨文件夹移动，以及回收站恢复。
 - **失败创建清理**：在回收站标题旁的“未完成创建”中清理记录，也可让 DSH 调用专用工具；完整地图和活动事务不会被当作失败产物删除。
-- **离线导出**：下载独立 HTML，离线阅读详情、拖动画布节点和切换排版。
+- **离线导出**：下载独立 HTML，离线阅读详情、拖动画布节点、切换排版，并支持深/浅色外观适配与切换。
 - **本地文件存储**：地图结构、Markdown 正文和布局分别保存，便于持续维护。
 
 ## 界面预览
@@ -25,18 +25,47 @@
 
 ## 安装
 
-直接把下面这段话发给 DSH，让它帮你安装：
+本插件现统一使用 npm 作用域包名 **`@xiao-53/dsh-mindmap`** 发布（对应 Release 附件 `xiao-53-dsh-mindmap-<版本>.tgz`）。
 
-```text
-请帮我安装 dsh-mindmap 思维导图插件。
-项目地址：https://github.com/Xiao-53/dsh-mindmap
-请从 GitHub 最新 Release 下载 .tgz 安装包，安装到我当前使用的 DSH profile，
-保留已有配置，并在完成后告诉我是否需要重启或重新加载。
+### 方式一：通过 npm 安装（推荐）
+
+在终端中将插件安装到当前使用的 DSH profile：
+
+```powershell
+dsh plugin --profile <当前profile> add @xiao-53/dsh-mindmap
 ```
 
-安装完成并按提示重启或重新加载后，在原生右侧栏中打开“思维导图”。
+也可以直接把下面这段话发给 DSH，让它帮你安装：
 
-也可以前往 [最新 Release](https://github.com/Xiao-53/dsh-mindmap/releases/latest) 下载安装包。仓库保留源码，安装包通过 Release 提供。
+```text
+请帮我安装 @xiao-53/dsh-mindmap 思维导图插件。
+npm 包名：@xiao-53/dsh-mindmap
+项目地址：https://github.com/Xiao-53/dsh-mindmap
+请安装到我当前使用的 DSH profile，保留已有配置，
+并在完成后告诉我是否需要重启或重新加载。
+```
+
+### 方式二：通过 GitHub Release 安装包安装
+
+前往 [最新 Release](https://github.com/Xiao-53/dsh-mindmap/releases/latest) 下载 `xiao-53-dsh-mindmap-<版本>.tgz`，然后执行：
+
+```powershell
+dsh plugin --profile <当前profile> add <安装包绝对路径>/xiao-53-dsh-mindmap-<版本>.tgz
+```
+
+或将安装包路径发给 DSH 协助安装。安装完成并按提示重启或重新加载后，在原生右侧栏中打开“思维导图”。
+
+### 从 0.3.12 等旧版升级说明
+
+> [!IMPORTANT]
+> 若你当前 profile 安装的是 **`0.3.12` 或更早版本的无作用域旧包名 `dsh-mindmap`**（含旧版 `dsh-mindmap-*.tgz`），由于包名已变更为 `@xiao-53/dsh-mindmap`，**同一 profile 不能同时存在两个包名**，升级前必须先卸载旧包再安装新版：
+>
+> ```powershell
+> dsh plugin --profile <当前profile> remove dsh-mindmap
+> dsh plugin --profile <当前profile> add @xiao-53/dsh-mindmap
+> ```
+>
+> 也可在 DSH Market 中先卸载旧的 `dsh-mindmap`，再重新安装 `@xiao-53/dsh-mindmap`。卸载插件不会删除工作区 `dsh-knowledge-maps/` 下的已有思维导图文件。
 
 ## 使用
 

@@ -101,7 +101,7 @@ npm run pack:plugin
 
 `typecheck` 分别检查 Host / Client，避免把宿主两端同名的 Context 服务声明混在一起。`test` 使用 Node 自带测试运行器，前置构建插件及 DOM 测试模块；jsdom 只用于验证组件和选区，不作为浏览器视觉验收。`build` 使用 esbuild，将样式作为文本随客户端入口携带，不打包第二份 React。DSH 包固定为 `0.2.2-rc.3`。
 
-构建输出为 `lib/index.js`、`lib/client.js` 和 `lib/typert.js`。GitHub Release 和本地安装继续使用 `npm run pack:plugin` 生成的 `dsh-mindmap-<版本>.tgz`，包名仍为 `dsh-mindmap`。npm 官方仓库包使用 `npm pack`，由 `prepack` 先构建，再生成 `xiao-53-dsh-mindmap-<版本>.tgz`，包名为 `@xiao-53/dsh-mindmap`。同一 profile 只安装其中一种。
+构建输出为 `lib/index.js`、`lib/client.js` 和 `lib/typert.js`。当前统一使用包名 `@xiao-53/dsh-mindmap`，通过 `npm pack`（由 `prepack` 先构建）生成 `xiao-53-dsh-mindmap-<版本>.tgz`，同时用于 npm 发布与 GitHub Release 安装；若从早期无作用域 `dsh-mindmap`（如 `0.3.12`）升级，需先卸载旧包再安装 `@xiao-53/dsh-mindmap`。`scripts/pack-release.mjs` 仅保留作兼容旧名称的历史脚本。
 
 两个安装包均包含三个构建入口、`package.json`、`cordis.yml`、`README.md` 和 `LICENSE`。测试、开发文档、用户数据及本地状态不打包。`lib/`、`node_modules/`、tgz 属于被忽略的本地产物。
 
