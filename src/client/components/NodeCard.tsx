@@ -24,6 +24,7 @@ export function NodeCard({
   selected,
   measure,
   onOpen,
+  onSelect,
   onNote,
   onMenu,
   children, onMove, onCommit, onDragStart, onDragEnd, locked,
@@ -34,6 +35,7 @@ export function NodeCard({
   selected?: boolean
   measure?: boolean
   onOpen?: () => void
+  onSelect?: () => void
   onNote?: () => void
   onMenu?: (x: number, y: number) => void
   children?: ReactNode
@@ -84,7 +86,7 @@ export function NodeCard({
       data-node={node.id}
       data-view={viewId}
       data-measure-node={measure ? node.id : undefined}
-      aria-label={`${drill ? '进入内部思维导图' : '查看节点详情'}：${node.title}`}
+      aria-label={`${drill ? '选中节点，双击进入内部思维导图' : '查看节点详情'}：${node.title}`}
       style={
         {
           left: measure ? layout?.x : 0,
@@ -115,12 +117,27 @@ export function NodeCard({
       onPointerUp={e => stop(e)}
       onPointerCancel={e => stop(e, true)}
       onLostPointerCapture={e => stop(e, true)}
-      onClick={event => { event.stopPropagation(); if (!locked && performance.now() >= suppressClickUntil.current) onOpen?.() }}
+      onClick={event => {
+        event.stopPropagation()
+        if (locked || performance.now() < suppressClickUntil.current) return
+        if (drill && onSelect) onSelect()
+        else onOpen?.()
+      }}
+      onDoubleClick={event => {
+        event.stopPropagation()
+        if (!locked && performance.now() >= suppressClickUntil.current && drill) onOpen?.()
+      }}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return
-        if (event.key === 'Enter' || event.key === ' ') {
+        if (event.key === 'Enter') {
           event.preventDefault()
           if (!locked) onOpen?.()
+        } else if (event.key === ' ') {
+          event.preventDefault()
+          if (!locked) {
+            if (drill && onSelect) onSelect()
+            else onOpen?.()
+          }
         }
         if (
           onMenu && ((event.shiftKey && event.key === 'F10') ||
@@ -146,7 +163,7 @@ export function NodeCard({
         <span className="node-title">{node.title}</span>
         {node.summary && <span className="node-desc">{node.summary}</span>}
       </span>
-      <span className={`node-hint ${drill ? 'has-subgraph' : 'has-detail'}`} title={drill ? '进入子图' : '查看详情'} aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">{drill ? <path d="M3 12 12 3M5 3h7v7" /> : <><path d="M4 2.5h6l2.5 2.5v8.5H4zM10 2.5V5h2.5M6 8h4M6 10.5h3" /></>}</svg></span>
+      <span className={`node-hint ${drill ? 'has-subgraph' : 'has-detail'}`} title={drill ? '双击进入子图' : '查看详情'} aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">{drill ? <path d="M3 12 12 3M5 3h7v7" /> : <><path d="M4 2.5h6l2.5 2.5v8.5H4zM10 2.5V5h2.5M6 8h4M6 10.5h3" /></>}</svg></span>
       {children}
     </div>
   )

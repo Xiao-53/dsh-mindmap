@@ -285,14 +285,52 @@
   stroke-dasharray: 6 6;
   opacity: 0.58;
 }
-.dsh-atlas .edge-label {
+.dsh-atlas .edges-base {
+  z-index: 1;
+}
+.dsh-atlas .edges-focus {
+  z-index: 5;
+}
+.dsh-atlas .edge-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 6;
+}
+.dsh-atlas .edge-pill {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  max-width: 132px;
+  box-sizing: border-box;
+  padding: 3px 9px;
+  border: 1px solid #dfd6c7;
+  border-radius: 99px;
+  background: rgba(255, 253, 248, 0.94);
+  box-shadow: 0 1px 4px rgba(87, 74, 54, 0.1);
+  color: #6b6154;
   font-size: 10px;
   font-weight: 630;
-  fill: #796e60;
-  paint-order: stroke;
-  stroke: #faf7ef;
-  stroke-width: 6px;
-  stroke-linejoin: round;
+  line-height: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: auto;
+  cursor: default;
+  transition: opacity 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+.dsh-atlas .edge-pill.is-focused {
+  z-index: 7;
+  border-color: var(--edge-primary, #91a796);
+  color: var(--edge-primary, #91a796);
+}
+.dsh-atlas .edge-pill.secondary.is-focused {
+  border-color: var(--edge-secondary, #c0a385);
+  color: var(--edge-secondary, #c0a385);
+}
+.dsh-atlas .edge-pill.is-dimmed {
+  opacity: 0.22;
+  pointer-events: none;
 }
 .dsh-atlas .node {
   position: absolute;
@@ -1237,3 +1275,19 @@
   background: transparent; text-align: left;
 }
 .dsh-atlas .note-position-menu button:is(:hover,:focus-visible) { background: #eee8df; }
+
+/* 详情关系操控：独立于笔记编辑器与自动排版。 */
+.dsh-atlas .neighbor-pills { margin: 0 0 18px; padding: 0 0 14px; border-bottom: 1px solid #dedbd2; }
+.dsh-atlas .neighbor-pill-group + .neighbor-pill-group { margin-top: 10px; }
+.dsh-atlas .neighbor-pill-group h4 { margin: 0 0 6px; font-size: 11px; color: #716f68; font-weight: 500; }
+.dsh-atlas .neighbor-pill-group > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.dsh-atlas .neighbor-pill { max-width: 100%; border: 1px solid #d4ddd7; border-radius: 14px; padding: 4px 9px; background: #f4f6f1; color: #4e6658; font: inherit; font-size: 12px; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.dsh-atlas .neighbor-pill:hover { background: #e6ece5; }
+.dsh-atlas .neighbor-pill:focus-visible { outline: 2px solid #8699aa; outline-offset: 2px; }
+.dsh-atlas .edge-focus-in { --edge-primary: #7c95a8; }
+.dsh-atlas .edge-focus-out { --edge-primary: #71947d; }
+.dsh-atlas .edge-focus-supplement { --edge-secondary: #b18b65; }
+.dsh-atlas .edge-focus-in, .dsh-atlas .edge-focus-out, .dsh-atlas .edge-focus-supplement, .dsh-atlas .edge-dimmed { transition: opacity .16s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .dsh-atlas .edges g, .dsh-atlas .edge-pill { transition: none; }
+}

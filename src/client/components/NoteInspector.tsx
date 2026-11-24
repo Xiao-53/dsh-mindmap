@@ -1,3 +1,4 @@
+import { NeighborPills } from './NeighborPills.tsx'
 import { NodeEditor, type NoteBodyEditor, type NoteViewport, type NoteViewportAnchor } from './NodeEditor.tsx'
 import type { EditSession } from '../edit-session.ts'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -17,6 +18,7 @@ export function NoteInspector({
   scroll,
   onScroll,
   onClose,
+  onSelectNeighbor,
   onFinishEdit,
   onInsert,
   onPlotReference,
@@ -33,6 +35,7 @@ export function NoteInspector({
   node: KnowledgeNode
   scroll: number
   onScroll: (top: number) => void
+  onSelectNeighbor?: (nodeId: string) => void
   onClose: () => void
   onFinishEdit?: (finish: () => void) => void
   onInsert?: (selection: SelectionSnapshot) => void
@@ -45,6 +48,7 @@ export function NoteInspector({
   onWidth?: (width: number) => void
   offline?: boolean
 }) {
+  const view = snapshot.map.views.find(v => v.id === viewId)
   const [editing, setEditing] = useState(false)
   const canEdit = !offline && !!editSession && !!bodyEditor && !!viewId && snapshot.writable !== false
   const inlineEditor = canEdit && editing
@@ -181,6 +185,7 @@ export function NoteInspector({
           if (((e.shiftKey && e.key === 'F10') || e.key === 'ContextMenu') && updateSelectionMenu()) e.preventDefault()
         }}
       >
+        {view && onSelectNeighbor && <NeighborPills map={snapshot.map} view={view} nodeId={node.id} onSelect={onSelectNeighbor} />}
         <NodeEditor key={node.id} session={editSession} editor={bodyEditor} viewport={viewport} node={node} snapshot={snapshot} viewId={viewId} editing={inlineEditor}
           onPlotReference={onPlotReference} onPositionReference={onPositionReference} onSelectionReference={onInsert}/>
         {referenceFallback && (reference?.kind === 'plot' || reference?.kind === 'note-position') && <details className="note-plot" open>

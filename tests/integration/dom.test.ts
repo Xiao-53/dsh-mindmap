@@ -14,7 +14,7 @@ for (const [k, v] of [['window', bootDom.window], ['document', bootDom.window.do
   bootOriginals.set(k, Object.getOwnPropertyDescriptor(globalThis, k))
   Object.defineProperty(globalThis, k, { value: v, configurable: true, writable: true })
 }
-const { AtlasPane, RenderNote, Icon, createOfflineHtml } = await import(
+const { AtlasPane, RenderNote, Icon, createOfflineHtml, NeighborPills, computeViewNeighbors, classifyEdgeFocus, MapScene } = await import(
   pathToFileURL(resolve('node_modules/.cache/dsh-mindmap/ui.mjs')).href
 )
 await import('react-dom/client')
@@ -37,11 +37,15 @@ test('所有 14 个节点 SVG 与 v17 元素一致；离线导出不泄露工作
   }
   snapshot.map.title = '</title><script>bad()</script>'
   snapshot.notes.quantum = '</script><script>bad()</script>'
+  const layoutBeforeExport = JSON.stringify(snapshot.layout)
   const exported = createOfflineHtml(snapshot, snapshot.layout, 'root', 'void 0;')
+  assert.equal(JSON.stringify(snapshot.layout), layoutBeforeExport)
   const document = new JSDOM(exported).window.document
   assert.equal(document.querySelectorAll('script').length, 2)
   assert.equal(document.title, snapshot.map.title)
-  assert.equal(JSON.parse(document.querySelector('#atlas-data')!.textContent!).notes.quantum, snapshot.notes.quantum)
+  const embedded = JSON.parse(document.querySelector('#atlas-data')!.textContent!)
+  assert.equal(embedded.notes.quantum, snapshot.notes.quantum)
+  assert.deepEqual(embedded.layout, snapshot.layout)
   assert.ok(!exported.includes('test-only'))
   assert.ok(!exported.includes('src="http'))
 })
@@ -240,6 +244,17 @@ test('首期面板实际挂载、加载、搜索、打开/关闭笔记和复制�
       2,
     )
     assert.ok(container.textContent?.includes('总览'))
+    assert.ok(container.querySelector('.edges.edges-base'))
+    assert.ok(container.querySelector('.edge-labels'))
+    assert.equal(container.querySelector('.edges-focus'), null)
+    const edgePaths = Array.from(container.querySelectorAll<SVGPathElement>('.edges path.edge'))
+    assert.ok(edgePaths.length >= 2)
+    for (const edgePath of edgePaths) {
+      const d = edgePath.getAttribute('d') ?? ''
+      assert.match(d, /^M-?\d.* [CL]/)
+      assert.ok(!d.includes('NaN'))
+    }
+    assert.equal(container.querySelectorAll('.edges path.edge-arrow').length, edgePaths.length)
     const draggable = container.querySelector<HTMLElement>('[data-node="a"]')!
     const leaf = container.querySelector('[data-node="b"]')!
     const parseX = (el: HTMLElement) => Number.parseFloat(/translate\((-?\d+(?:\.\d+)?)px/.exec(el.style.transform)?.[1] ?? el.style.left)
@@ -251,9 +266,11 @@ test('首期面板实际挂载、加载、搜索、打开/关闭笔记和复制�
     await act(async () => {
       draggable.dispatchEvent(new dom.window.MouseEvent('pointerup', { bubbles:true, clientX:140, clientY:120 }))
       draggable.click()
+      draggable.dispatchEvent(new dom.window.MouseEvent('dblclick', { bubbles: true }))
     })
     assert.equal(parseX(draggable), beforeX+40)
     assert.equal(container.querySelector('.inspector'), null)
+    assert.notEqual((Object.values(state.maps)[0] as any)?.viewId, 'child')
     await act(async () => {
       leaf.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles:true, clientX:120,clientY:120 }))
     })
@@ -303,6 +320,49 @@ test('首期面板实际挂载、加载、搜索、打开/关闭笔记和复制�
     })
     assert.ok(container.querySelector('.inspector'))
     assert.ok(container.textContent?.includes('复制内容'))
+    assert.ok(container.querySelector('[data-neighbor-node="a"][data-neighbor-role="prerequisites"]'))
+    assert.ok(container.querySelector('[data-relation="ab"][data-focus="in"]'))
+    assert.ok(container.querySelector('[data-relation="ba"][data-focus="supplement"]'))
+    assert.ok(container.querySelector('.edges-focus [data-relation="ab"][data-focus="in"]'))
+    assert.equal(container.querySelector('.edges-base [data-focus="in"]'), null)
+    const readingState = () => Object.values(state.maps)[0] as any
+    const cameraBeforeNeighbor = { ...readingState().cameras.root }
+    await act(async () => { container.querySelector<HTMLButtonElement>('[data-neighbor-node="a"]')!.click() })
+    assert.equal(readingState().viewId, 'root') // a 有 childViewId，胶囊不下钻。
+    assert.equal(readingState().selectedNodeId, 'a')
+    assert.notDeepEqual(readingState().cameras.root, cameraBeforeNeighbor)
+    assert.ok(container.querySelector('[data-neighbor-node="b"][data-neighbor-role="dependents"]'))
+    assert.ok(container.querySelector('[data-relation="ab"][data-focus="out"]'))
+    await act(async () => { container.querySelector<HTMLButtonElement>('[data-neighbor-node="b"]')!.click() })
+    await act(async () => { container.querySelector<HTMLButtonElement>('[aria-label="关闭笔记"]')!.click() })
+    assert.equal(container.querySelector('.inspector'), null)
+    assert.equal(readingState().selectedNodeId, 'b')
+    assert.equal(readingState().detailHidden, true)
+    assert.ok(container.querySelector('[data-relation="ab"][data-focus="in"]'))
+    await act(async () => { leaf.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+    assert.ok(container.querySelector('.inspector'))
+    const escape = () => container.querySelector('.reading-pane')!.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await act(async () => { escape() })
+    assert.equal(readingState().detailHidden, true)
+    await act(async () => { escape() })
+    assert.equal(readingState().selectedNodeId, undefined)
+    assert.equal(container.querySelector('[data-focus]'), null)
+    assert.equal(container.querySelector('.edges-focus'), null)
+    await act(async () => { leaf.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+    const canvas = container.querySelector('.map-wrap')!
+    await act(async () => {
+      canvas.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 10, clientY: 10 }))
+      canvas.dispatchEvent(new dom.window.MouseEvent('pointermove', { bubbles: true, clientX: 35, clientY: 10 }))
+      canvas.dispatchEvent(new dom.window.MouseEvent('pointerup', { bubbles: true, clientX: 35, clientY: 10 }))
+    })
+    assert.equal(readingState().selectedNodeId, 'b')
+    await act(async () => {
+      canvas.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 10, clientY: 10 }))
+      canvas.dispatchEvent(new dom.window.MouseEvent('pointerup', { bubbles: true, clientX: 10, clientY: 10 }))
+    })
+    assert.equal(readingState().selectedNodeId, undefined)
+    await act(async () => { leaf.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+
     await act(async () => {
       draggable.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 100, clientY: 100 }))
       draggable.dispatchEvent(new dom.window.MouseEvent('pointermove', { bubbles: true, clientX: 115, clientY: 100 }))
@@ -356,6 +416,31 @@ test('首期面板实际挂载、加载、搜索、打开/关闭笔记和复制�
       }))
     })
     assert.ok(container.querySelector('.map-scene'))
+    const subgraphNode = container.querySelector<HTMLElement>('[data-node="a"]')!
+    const leafNode = container.querySelector<HTMLElement>('[data-node="b"]')!
+    const currentReading = () => Object.values(state.maps)[0] as any
+    await act(async () => { leafNode.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+    assert.ok(container.querySelector('.inspector'))
+    await act(async () => { subgraphNode.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+    assert.equal(currentReading().viewId, 'root')
+    assert.equal(currentReading().selectedNodeId, 'a')
+    assert.equal(currentReading().detailHidden, true)
+    assert.equal(container.querySelector('.inspector'), null)
+    assert.ok(container.querySelector('.edges-focus [data-relation="ab"][data-focus="out"]'))
+    await act(async () => {
+      container.querySelector('.reading-pane')!.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    assert.equal(currentReading().selectedNodeId, undefined)
+    await act(async () => {
+      subgraphNode.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: ' ', bubbles: true }))
+    })
+    assert.equal(currentReading().viewId, 'root')
+    assert.equal(currentReading().selectedNodeId, 'a')
+    assert.equal(currentReading().detailHidden, true)
+    await act(async () => {
+      subgraphNode.dispatchEvent(new dom.window.MouseEvent('dblclick', { bubbles: true }))
+    })
+    assert.equal(currentReading().viewId, 'child')
   } finally {
     await act(async () => root.unmount())
     for (const [key, original] of originals) {
@@ -496,4 +581,54 @@ test('管理页支持直接拖到目标导图下方、展开文件夹内不冒�
     }
     dom.window.close()
   }
+})
+
+
+test('关系胶囊按当前视图过滤、稳定去重，未选中恢复默认连线', async () => {
+  const { sampleMap } = await import('../support/maps.ts')
+  const map = sampleMap(), view = map.views[0]
+  map.nodes.push({ id: 'outside', title: '外部', summary: '', category: 'blue', icon: 'book' })
+  map.relations.push(
+    { id: 'duplicate', fromNodeId: 'a', toNodeId: 'b', type: 'dependency' },
+    { id: 'hidden', fromNodeId: 'b', toNodeId: 'a', type: 'dependency' },
+    { id: 'external', fromNodeId: 'outside', toNodeId: 'b', type: 'dependency' },
+  )
+  view.relationIds.push('duplicate', 'external')
+  const neighbors = computeViewNeighbors(map, view, 'b')
+  assert.deepEqual(neighbors.prerequisites.map((n: any) => n.nodeId), ['a'])
+  assert.deepEqual(neighbors.dependents, [])
+  assert.deepEqual(neighbors.supplements.map((n: any) => n.nodeId), ['a'])
+  const markup = renderToStaticMarkup(createElement(NeighborPills, { map, view, nodeId: 'b', onSelect: () => {} }))
+  assert.ok(markup.includes('前置依赖'))
+  assert.ok(!markup.includes('外部'))
+  assert.equal(classifyEdgeFocus(map.relations[0]), 'default')
+  assert.equal(classifyEdgeFocus(map.relations[0], 'outside'), 'dimmed')
+  assert.equal(classifyEdgeFocus(map.relations[0], 'a'), 'out')
+  assert.equal(classifyEdgeFocus(map.relations[0], 'b'), 'in')
+  assert.equal(classifyEdgeFocus(map.relations[1], 'a'), 'supplement')
+})
+
+test('MapScene 四层渲染：常态仅底层连线与胶囊，单击选中才挂载 edges-focus 且胶囊联动', async () => {
+  const { snapshot } = await loadPrototype()
+  const view = snapshot.map.views.find(v => v.id === 'root')!
+  const layout = snapshot.layout!.views.find(v => v.viewId === 'root')!
+  const first = snapshot.map.relations.find(r => r.id === view.relationIds[0])!
+  const map = { ...snapshot.map, relations: snapshot.map.relations.map(r => (r.id === first.id ? { ...r, label: '因果关系' } : r)) }
+  const render = (selected?: string) =>
+    new JSDOM(renderToStaticMarkup(createElement(MapScene, { map, view, layout, heights: {}, selected, onOpen() {}, onNote() {} }))).window.document
+  const idle = render()
+  assert.ok(idle.querySelector('.edges.edges-base'))
+  assert.equal(idle.querySelector('.edges-focus'), null)
+  const pill = idle.querySelector(`.edge-labels .edge-pill[data-relation="${first.id}"]`)!
+  assert.equal(pill.getAttribute('title'), '因果关系')
+  assert.ok(!pill.classList.contains('is-focused') && !pill.classList.contains('is-dimmed'))
+  assert.match(pill.getAttribute('style') ?? '', /left:\s*-?\d/)
+  assert.equal(idle.querySelectorAll('.edge-labels text, .edges text').length, 0)
+  assert.ok(idle.querySelector('.atlas-ports'))
+
+  const picked = render(first.fromNodeId)
+  assert.ok(picked.querySelector('.edges.edges-focus'))
+  assert.ok(picked.querySelector(`.edges-focus [data-relation="${first.id}"]`))
+  assert.equal(picked.querySelector(`.edges-base [data-relation="${first.id}"]`), null)
+  assert.ok(picked.querySelector(`.edge-pill[data-relation="${first.id}"].is-focused`))
 })

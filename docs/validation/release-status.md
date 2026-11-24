@@ -1,3 +1,15 @@
+# 开发候选 0.4.5-preview.2
+
+2026-11-23，基于 `0.4.5-preview.1` 优化连线曲线避让与关系胶囊缩放：对超长连线（以及单段绕弧仍未完全避开卡片的连线）采用 De Casteljau 三等分与 $C^1$ 连续单调 Hermite 航点三段避让，并修复曲线避让后连线中央标签未跟随实际曲线中点移动的问题；将点击详情关系胶囊（前置依赖 / 后续节点 / 补充关联）时的相机缩放调整为“当前视图适配缩放 + 10%”（保留搜索与引用回跳的默认缩放不变），离线导出 HTML 同步生效。仅完成 Host/Client 类型检查、构建与打包静态核验；自动化测试与 DSH / 离线人工验收待执行。
+
+[本地安装包](../../dist/previews/xiao-53-dsh-mindmap-0.4.5-preview.2.tgz) · [010 实施交付记录](../../specs/010-layout-authoring-navigation/implementation-status.md)
+
+# 开发候选 0.4.5-preview.1
+
+2026-11-23，完成 010 四向邻接排版与贝塞尔避让、`/mindmap` 生成质量提示词、详情关系胶囊及选中状态解耦实现，并重整打包输出目录逻辑（统一包名 `@xiao-53/dsh-mindmap`，预发布产物归入 `dist/previews/`、正式发布产物归入 `dist/releases/`）。仅完成 Host/Client 类型检查、构建与打包静态核验；自动化测试与 DSH 真机人工验收待执行。
+
+[本地安装包](../../dist/previews/xiao-53-dsh-mindmap-0.4.5-preview.1.tgz) · [010 实施交付记录](../../specs/010-layout-authoring-navigation/implementation-status.md)
+
 # 正式版本 v0.4.4
 
 2026-11-20，用户确认 `0.4.4-preview.1` 人工验收通过，同意发布 `v0.4.4`。该版本新增暗色模式（自动同步 DSH 宿主主题 `body[data-ds-dark-theme]`、离线 HTML 自动适配 `prefers-color-scheme: dark`，并在目录页与阅读页提供快捷明暗切换，覆盖画布节点、连线端口、Markdown 编辑器、KaTeX 公式及 JSXGraph 图表），并包含架构健壮性加固改动。

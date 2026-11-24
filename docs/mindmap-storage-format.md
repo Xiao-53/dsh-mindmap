@@ -168,3 +168,7 @@ library.json在原schemaVersion:1下增加可选字段：deletedMapTitles为mapI
 编辑会话产生的孤立 `.image.json` 在活动 `EditSession` 期间继续保留于磁盘以支持 `Ctrl/Cmd+Z` 撤销恢复；当编辑会话在无未保存变更且干净状态下脱离（`detach`），或由用户在阅读页保存状态弹层中手动触发“清理未引用图片”时，插件通过 `cleanupOrphanAssets` 重新扫描全图正文引用并逐项校验后条件删除未引用的 `.image.json` 资产。
 
 本地附件收敛为仅支持图片资源（`png`、`jpg`、`jpeg`、`gif`、`webp` 与 `.image.json`），`readSnapshot` 不再读取或内联 `.pdf` / `.txt` 等非图片本地附件；笔记渲染器将非 `safeHref`（非网络或锚点）的本地链接渲染为只读提示“（仅支持网络链接与本地图片）”。单图已内联图片资源总字节上限为 `20 MiB`，超出时只读阅读路径通过 `resource_too_large` 诊断安全降级（`writable: false`、空 `fingerprint`），提交校验路径拒绝超出预算的候选。
+
+### 排列模式兼容性
+
+`layout.json` 的 `views[].mode` 在新建与排列切换时仅使用 `vertical`（纵向）或 `grid`（田字型，至少两个分组区域）。历史 `columns` 值仍可读取和校验，打开时保留已存节点坐标与分组外框；主动重排时按区域数量归入 `grid` 或 `vertical`。

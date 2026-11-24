@@ -169,9 +169,19 @@
   color: #857c6f;
 }
 
-.dsh-atlas[data-atlas-theme="dark"] .edge-label {
-  fill: #c4b8a6;
-  stroke: #1c1a17;
+.dsh-atlas[data-atlas-theme="dark"] .edge-pill {
+  background: rgba(37, 35, 31, 0.94);
+  border-color: #443e35;
+  color: #cfc4b3;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+.dsh-atlas[data-atlas-theme="dark"] .edge-pill.is-focused {
+  border-color: var(--edge-primary, #7fa187);
+  color: var(--edge-primary, #7fa187);
+}
+.dsh-atlas[data-atlas-theme="dark"] .edge-pill.secondary.is-focused {
+  border-color: var(--edge-secondary, #b89877);
+  color: var(--edge-secondary, #b89877);
 }
 
 .dsh-atlas[data-atlas-theme="dark"] .node {
@@ -942,3 +952,12 @@
 .dsh-atlas[data-atlas-theme="dark"] .library-checkbox:focus-visible {
   outline-color: #789ca6;
 }
+
+.dsh-atlas[data-atlas-theme="dark"] .neighbor-pills { border-color: #454842; }
+.dsh-atlas[data-atlas-theme="dark"] .neighbor-pill-group h4 { color: #b4b9af; }
+.dsh-atlas[data-atlas-theme="dark"] .neighbor-pill { background: #303b34; border-color: #536457; color: #d1dfd3; }
+.dsh-atlas[data-atlas-theme="dark"] .neighbor-pill:hover { background: #3d4b40; }
+.dsh-atlas[data-atlas-theme="dark"] .edge-focus-in { --edge-primary: #9ab6ca; }
+.dsh-atlas[data-atlas-theme="dark"] .edge-focus-out { --edge-primary: #9ac4a3; }
+.dsh-atlas[data-atlas-theme="dark"] .edge-focus-supplement { --edge-secondary: #d3ad86; }
+.dsh-atlas[data-atlas-theme="dark"] .edge-dimmed { pointer-events: none; }

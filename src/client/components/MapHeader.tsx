@@ -16,10 +16,10 @@ export function MapHeader({ map, view, navigate, search, refresh, library, expor
 }) {
   const theme = useAtlasThemeContext()
   const modes=availableModes(view)
-  const current=layoutMode??'vertical'
-  const next=modes[(modes.indexOf(current)+1)%modes.length]
+  const current=layoutMode === 'grid' && modes.includes('grid') ? 'grid' : 'vertical'
+  const next=modes[(modes.indexOf(current)+1)%modes.length] as 'vertical' | 'grid'
   const canCycle = next !== current
-  const names={vertical:'纵向',grid:'田字型',columns:'多列'}
+  const names={vertical:'纵向',grid:'田字型'}
   const depth = viewPath(map, view.id).length
   const total = Math.max(...map.views.map(v => viewPath(map, v.id).length))
   return <header className="map-header">
@@ -34,7 +34,7 @@ export function MapHeader({ map, view, navigate, search, refresh, library, expor
       {!offline && <button className="atlas-host-button" onClick={library} title="全部导图"><ToolIcon name="library"/>全部导图</button>}
       {onLayout && <button className="atlas-host-button atlas-quiet-icon" disabled={!canCycle} aria-label={canCycle?`当前${names[current]}排列，切换为${names[next]}`:`${names[current]}排列`} title={!canCycle?`${names[current]}排列`:`${names[current]} · 点击切换为${names[next]}`} onClick={()=>onLayout(next)}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-          {current==='vertical'?<><rect x="5" y="4" width="14" height="6" rx="1.5"/><rect x="5" y="14" width="14" height="6" rx="1.5"/></>:current==='grid'?<>{[4,14].flatMap(x=>[4,14].map(y=><rect key={`${x}/${y}`} x={x} y={y} width="6" height="6" rx="1.2"/>))}</>:<>{[3,10,17].map(x=><rect key={x} x={x} y="5" width="4" height="14" rx="1"/>)}</>}
+          {current==='vertical'?<><rect x="5" y="4" width="14" height="6" rx="1.5"/><rect x="5" y="14" width="14" height="6" rx="1.5"/></>:<>{[4,14].flatMap(x=>[4,14].map(y=><rect key={`${x}/${y}`} x={x} y={y} width="6" height="6" rx="1.2"/>))}</>}
         </svg>
       </button>}
       {onReset && <button className="atlas-host-button atlas-quiet-icon" onClick={onReset} aria-label="重置为纵向排列" title="重置排列"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 8h9a6 6 0 1 1 0 12h-3M5 8l4-4M5 8l4 4"/></svg></button>}

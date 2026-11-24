@@ -50,3 +50,19 @@
 - 仓库已接入 `agent-browser`（`.agents/skills/agent-browser/SKILL.md` 及全局 `~/.gemini/config/skills/agent-browser/SKILL.md`）与两层自动化 E2E 验证工作流（`.agents/skills/dsh-e2e-verify/SKILL.md`、`scripts/e2e-env.mjs`、`npm.cmd run verify:layer1`、`npm.cmd run verify:e2e:start`、`npm.cmd run verify:e2e:serve`、`npm.cmd run verify:e2e:stop`）。
 - 后续**仅在用户明确要求由 Agent 执行自动化验收时**，才由 Agent 先用 `verify:e2e:serve`（独立终端可用 `verify:e2e:start`）启动隔离的临时 `DSH_HOME`、`e2e-workspace`、`--profile web --no-open` 与独立端口测试实例，再用 `agent-browser.cmd --session dsh-mindmap-e2e`（保留默认 `AGENT_BROWSER_SOCKET_DIR`，支持 `--headed` 或 `agent-browser dashboard` 实时围观）交互式跑完测试并排查前端报错，最后执行 `npm.cmd run verify:e2e:stop` 清理并汇报验收报告与 `test-artifacts/` 关键截图；其余日常开发改动完成后，UI 验收仍交由用户手动确认（`test-artifacts/` 已加入 `.gitignore`）。
 - Windows 11 / PowerShell 环境下避免调用被执行策略拦截的 `.ps1`，应使用 `npm.cmd`、`agent-browser.cmd` 与 DSH Desktop 内置 `dsh.cmd`；测试结束必须关闭浏览器会话、终止后台 `dsh` 进程树并清理临时 `DSH_HOME`。
+
+## 2026-11-24 预览包自动打包约定
+
+- 每次影响插件产物的改动（`src/`、构建脚本、依赖及随包文档）完成后，Agent 自动执行 `npm.cmd run pack:plugin` 生成预览包，不需要用户另行要求；打包不等同于验收通过，交付时仍须说明未验证项。仅改 `AGENTS.md`、`specs/`、`docs/validation/` 等不进入产物的文件、纯问答与只读调查的回合不打包。
+- 预览包版本号固定为 `0.4.5-preview.n`，产物位于 `dist/previews/xiao-53-dsh-mindmap-0.4.5-preview.n.tgz`。
+- 命名前必须先列出 `dist/previews/` 目录，取已有 `preview.n` 的最大 n，新版本为 n+1：不重复已有编号，不跳号，目录为空时从 `preview.1` 开始。
+- 确定编号后先把 `package.json` 与 `package-lock.json`（根节点 `version` 及 `packages[""].version`）的版本同步改为 `0.4.5-preview.(n+1)`，再打包；打包后核对输出的 tgz 文件名与目录中无重复。
+- 同一回合内如有多次改动，只在该回合全部改动完成后打包一次，避免无意义地消耗编号。
+- 基础版本号（`0.4.5`）升级或正式发布仍须用户明确指示；预览包不创建 Git 标签、不推送、不发布。
+
+## 2026-11-24 交付前 Git 本地保存约定
+
+- 每次产生工作区文件改动并准备向用户交付前，Agent 必须先执行本地 Git 保存（暂存变更并 `git commit`）作为可回退检查点；纯问答与只读调查（无工作区改动）不创建空提交。
+- 若本回合同时触发“预览包自动打包约定”，应先完成全部文件修改、版本号同步与 `npm.cmd run pack:plugin`，再执行本地 Git 提交（`dist/`、`lib/`、`*.tgz` 已由 `.gitignore` 忽略，不纳入提交）。
+- 提交前必须先检查 `git status -s`，确认不包含凭据、密钥、会话记录、机器本地状态或其他不应入库的文件。
+- 仅执行本地 `git commit` 保存检查点，不自行 `git push`、不创建 Git 标签、不发布；提交信息使用简洁中文（涉及预览包时标明当前版本号），并在交付回复中附上本次 commit 短哈希与提交说明，便于随时回退。

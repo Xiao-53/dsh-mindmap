@@ -9,6 +9,7 @@ export interface Camera {
 export interface ReadingLocation {
   viewId: string
   selectedNodeId?: string
+  detailHidden?: boolean
   detailScroll: number
   focusSource?: string
   camera?: Camera
@@ -24,6 +25,7 @@ export interface ReadingState {
   viewId: string
   cameras: Record<string, Camera>
   selectedNodeId?: string
+  detailHidden?: boolean
   detailScroll: number
   focusSource?: string
   history?: ReadingHistory
@@ -64,6 +66,7 @@ export function reconcileReading(
       ...state,
       viewId: viewRemoved ? map.rootViewId : state.viewId,
       selectedNodeId: viewRemoved || nodeRemoved ? undefined : state.selectedNodeId,
+      detailHidden: viewRemoved || nodeRemoved ? undefined : state.detailHidden,
       detailScroll: viewRemoved || nodeRemoved ? 0 : state.detailScroll,
       ...(history ? { history } : {}),
     },

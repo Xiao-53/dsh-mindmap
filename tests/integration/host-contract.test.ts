@@ -135,3 +135,10 @@ test('构建后的插件通过真实 Cordis/Typert/Gateway 绑定会话并检查
     await ctx.fiber.dispose()
   }
 })
+
+
+test('/mindmap 明确独立入口、跨主题可检验内容及覆盖边界', async () => {
+  const { mindmapAuthoring } = await import('../../src/server/prompts/authoring.ts')
+  for (const rule of ['入度为 0', '独立入口', '唯一根节点', '编造 dependency', '核心职责', '失效约束', '触发条件', '分支判据', '可观察的检验标准', '覆盖范围', '默认阅读起点', '不代表待核实事实已确认'])
+    assert.ok(mindmapAuthoring.includes(rule), rule)
+})

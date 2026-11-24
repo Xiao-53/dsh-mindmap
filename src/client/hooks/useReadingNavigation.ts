@@ -15,6 +15,7 @@ import { insertPending, type PendingInsertion } from '../insert-reference.ts'
 import {
   historyReading,
   NavigationTransition,
+  neighborFocusZoom,
   recordReadingNavigation,
   targetReading,
   viewPath,
@@ -227,6 +228,22 @@ export function useReadingNavigation({
     if (target.message) notify(target.message)
   }, [snapshot, reference, tab.navigation.revision])
 
+  const selectNode = (id: string) => {
+    const reading = latestRef.current.reading
+    if (!reading || navigationBusy.current) return
+    if (!(document.activeElement as HTMLElement | null)?.closest('.node-menu')) {
+      focus.current = document.activeElement as HTMLElement
+    }
+    const next = {
+      ...reading,
+      selectedNodeId: id,
+      detailHidden: true,
+      focusSource: id,
+    }
+    latestRef.current.reading = next
+    actions.setReading(readingKeyValue, next)
+  }
+
   const openNote = (id: string) => {
     const reading = latestRef.current.reading
     if (!reading || navigationBusy.current) return
@@ -236,6 +253,7 @@ export function useReadingNavigation({
     const next = {
       ...reading,
       selectedNodeId: id,
+      detailHidden: false,
       detailScroll: id === reading.selectedNodeId ? reading.detailScroll : 0,
       focusSource: id,
     }
@@ -246,8 +264,8 @@ export function useReadingNavigation({
   const closeNote = () => {
     const reading = latestRef.current.reading
     if (navigationBusy.current) return
-    if (reading) {
-      const next = { ...reading, selectedNodeId: undefined }
+    if (reading?.selectedNodeId) {
+      const next = { ...reading, detailHidden: true }
       latestRef.current.reading = next
       actions.setReading(readingKeyValue, next)
       restoreFocus(
@@ -257,6 +275,29 @@ export function useReadingNavigation({
         rootRef.current,
       )
     }
+  }
+
+  const clearSelection = () => {
+    const reading = latestRef.current.reading
+    if (!reading?.selectedNodeId || navigationBusy.current) return
+    const next = { ...reading, selectedNodeId: undefined, detailHidden: undefined }
+    latestRef.current.reading = next
+    actions.setReading(readingKeyValue, next)
+  }
+
+  const focusNodeInView = (targetNodeId: string) => {
+    const { reading, snapshot, visible } = latestRef.current
+    if (!visible || !reading || !snapshot || navigationBusy.current) return
+    const view = snapshot.map.views.find(v => v.id === reading.viewId)
+    if (!view || !(view.centerNodeId === targetNodeId || view.occurrences.some(o => o.nodeId === targetNodeId))) return
+    const viewport = rootRef.current?.querySelector('.content-area')?.getBoundingClientRect() ?? { width: 360, height: 500 }
+    const visibleWidth = viewport.width - inspectorWidth >= 180 ? viewport.width - inspectorWidth : viewport.width
+    const viewLayout = layout?.views.find(v => v.viewId === reading.viewId)
+    const zoom = neighborFocusZoom(viewLayout, heights, viewport)
+    const next = targetReading(reading, reading.viewId, targetNodeId, layout, heights, { width: visibleWidth, height: viewport.height }, zoom)
+    setReference(undefined)
+    latestRef.current.reading = next
+    actions.setReading(readingKeyValue, next)
   }
 
   const openSearch = () => {
@@ -457,8 +498,11 @@ export function useReadingNavigation({
     resetNavigation,
     navigate,
     traverseHistory,
+    selectNode,
     openNote,
     closeNote,
+    clearSelection,
+    focusNodeInView,
     openSearch,
     closeSearch,
     chooseMap,

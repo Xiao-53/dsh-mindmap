@@ -300,7 +300,8 @@ export function ReadingPane(props: ReadingPaneProps) {
             } else if (node) {
               e.preventDefault()
               e.stopPropagation()
-              void doc.guard(nav.closeNote)
+              if (reading?.detailHidden) nav.clearSelection()
+              else void doc.guard(nav.closeNote)
             }
           }
         }}
@@ -451,6 +452,7 @@ export function ReadingPane(props: ReadingPaneProps) {
           {snapshot && view && viewLayout && reading ? (
             <MapViewport
               key={view.id}
+              onClearSelection={() => { if (reading.selectedNodeId) void doc.guard(nav.clearSelection) }}
               centerNodeId={view.centerNodeId}
               camera={reading.cameras[view.id]}
               onCamera={camera => {
@@ -476,6 +478,7 @@ export function ReadingPane(props: ReadingPaneProps) {
                 onDragStart={() => vp.startDrag(viewLayout, () => { nav.setNodeMenu(undefined); nav.setSearchOpen(false) })}
                 onDragEnd={() => vp.endDrag(root.current)}
                 onMenu={props.offline ? undefined : nav.openNodeMenu}
+                onSelect={id => { void doc.guard(() => nav.selectNode(id)) }}
                 onNote={id => { void doc.guard(() => nav.openNote(id)) }}
                 onOpen={id => {
                   const targetNode = snapshot.map.nodes.find(n => n.id === id)!
@@ -501,7 +504,7 @@ export function ReadingPane(props: ReadingPaneProps) {
               )}
             </div>
           )}
-          {snapshot && node && reading && !nav.searchOpen && (
+          {snapshot && node && reading && !reading.detailHidden && !nav.searchOpen && (
             <NoteInspector
               key={`${view?.id}/${node.id}`}
               snapshot={snapshot}
@@ -520,6 +523,7 @@ export function ReadingPane(props: ReadingPaneProps) {
                   actions.setReading(key, next)
                 }
               }}
+              onSelectNeighbor={id => { void doc.guard(() => nav.focusNodeInView(id)) }}
               onClose={() => { void doc.guard(nav.closeNote) }}
               onFinishEdit={finish => { void doc.guard(finish) }}
               onInsert={props.offline ? undefined : selection => nav.insert(selection)}

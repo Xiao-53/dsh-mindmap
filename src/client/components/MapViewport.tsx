@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import type { Camera } from '../reading-state.ts'
 import type { ViewLayout } from '../../shared/map-types.ts'
 import type { Heights } from '../../shared/layout.ts'
-import { viewBounds } from '../../shared/layout.ts'
+import { fitCameraForView } from '../navigation.ts'
 export function MapViewport({
   children,
   camera,
@@ -13,6 +13,7 @@ export function MapViewport({
   phase,
   exitMotion,
   centerNodeId,
+  onClearSelection,
 }: {
   children: ReactNode
   camera?: Camera
@@ -22,22 +23,17 @@ export function MapViewport({
   phase: string
   exitMotion?: { ratio: number; x: number; y: number }
   centerNodeId?: string
+  onClearSelection?: () => void
 }) {
   const root = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 360, height: 500 })
   const sizeMeasured = useRef(false)
   const keyboardFocus = useRef(false)
-  const drag = useRef<{ x: number; y: number; camera: Camera }>()
+  const drag = useRef<{ x: number; y: number; camera: Camera; pointerId: number; button: number; moved: boolean }>()
   const [direct, setDirect] = useState(false)
   const wheelTimer = useRef<ReturnType<typeof setTimeout>>()
-  const bounds = viewBounds(layout, heights)
   const initial = layout.nodes.find(n => n.nodeId === centerNodeId) ?? layout.nodes[0]
-  const fitCamera = () => {
-    const width = Math.max(1140, bounds.x + bounds.width + 40)
-    const height = Math.max(800, bounds.y + bounds.height + 40)
-    const scale = Math.max(.02, Math.min(1.15, (size.width-70)/width, (size.height-75)/height))
-    return { zoom: scale, x: (size.width-width*scale)/2, y: (size.height-height*scale)/2 }
-  }
+  const fitCamera = () => fitCameraForView(layout, heights, size)
   const initialZoom = size.width < 440 ? .77 : .88
   const current = camera ?? (size.width >= 620 ? fitCamera() : {
     x: size.width * .49 - ((initial?.x ?? 0)+(initial?.width ?? 236)/2)*initialZoom,
@@ -108,27 +104,34 @@ export function MapViewport({
       onPointerDownCapture={() => { keyboardFocus.current = false }}
       onPointerDown={(e) => {
         if (
-          phase !== 'idle' || (e.button !== 0 && e.button !== 1) ||
+          phase !== 'idle' || drag.current || (e.button !== 0 && e.button !== 1) ||
           (e.target as HTMLElement).closest(
-            'button,[role="button"],.inspector,.search-overlay,.node-menu,.canvas-tools',
+            '[data-node],button,[role="button"],.inspector,.search-overlay,.node-menu,.canvas-tools',
           )
         )
           return
         e.currentTarget.focus({preventScroll:true})
-        drag.current = { x: e.clientX, y: e.clientY, camera: current }
+        drag.current = { x: e.clientX, y: e.clientY, camera: current, pointerId: e.pointerId, button: e.button, moved: false }
         setDirect(true)
         e.currentTarget.setPointerCapture(e.pointerId)
       }}
       onPointerMove={(e) => {
         const d = drag.current
-        if (d)
+        if (d && d.pointerId === e.pointerId) {
+          if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) d.moved = true
           onCamera({
             ...d.camera,
             x: d.camera.x + e.clientX - d.x,
             y: d.camera.y + e.clientY - d.y,
           })
+        }
       }}
-      onPointerUp={() => {
+      onPointerUp={(e) => {
+        const d = drag.current
+        if (!d || d.pointerId !== e.pointerId) return
+        if (d.button === 0 && !d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) <= 5 &&
+          !(e.target as Element).closest('[data-node],button,[role="button"],.inspector,.search-overlay,.node-menu,.canvas-tools')) onClearSelection?.()
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
         drag.current = undefined
         setDirect(false)
       }}

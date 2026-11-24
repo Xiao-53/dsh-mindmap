@@ -1,13 +1,13 @@
-import type { KnowledgeMap, KnowledgeNode } from '../shared/map-types.ts'
-import type { MapLayout } from '../shared/map-types.ts'
+import type { KnowledgeMap, KnowledgeNode, MapLayout, ViewLayout } from '../shared/map-types.ts'
 import type { Heights } from '../shared/layout.ts'
-import { nodeHeight } from '../shared/layout.ts'
-import type { ReadingLocation, ReadingState } from './reading-state.ts'
+import { nodeHeight, viewBounds } from '../shared/layout.ts'
+import type { Camera, ReadingLocation, ReadingState } from './reading-state.ts'
 import { validReadingLocation } from './reading-state.ts'
 export type HistoryDirection = 'back' | 'forward'
 const readingLocation = (state: ReadingState): ReadingLocation => ({
   viewId: state.viewId,
   selectedNodeId: state.selectedNodeId,
+  detailHidden: state.detailHidden,
   detailScroll: state.detailScroll,
   focusSource: state.focusSource,
   camera: state.cameras[state.viewId],
@@ -45,6 +45,7 @@ export function historyReading(
     ...state,
     viewId: target.viewId,
     selectedNodeId: target.selectedNodeId,
+    detailHidden: target.detailHidden,
     detailScroll: target.detailScroll,
     focusSource: target.focusSource,
     cameras,
@@ -55,6 +56,32 @@ export function historyReading(
     },
   }
 }
+export function fitCameraForView(
+  layout: ViewLayout,
+  heights: Heights,
+  viewport: { width: number; height: number },
+): Camera {
+  const bounds = viewBounds(layout, heights)
+  const width = Math.max(1140, bounds.x + bounds.width + 40)
+  const height = Math.max(800, bounds.y + bounds.height + 40)
+  const zoom = Math.max(
+    0.02,
+    Math.min(1.15, (viewport.width - 70) / width, (viewport.height - 75) / height),
+  )
+  return {
+    zoom,
+    x: (viewport.width - width * zoom) / 2,
+    y: (viewport.height - height * zoom) / 2,
+  }
+}
+export function neighborFocusZoom(
+  viewLayout: ViewLayout | undefined,
+  heights: Heights,
+  viewport: { width: number; height: number },
+): number {
+  const fitZoom = viewLayout ? fitCameraForView(viewLayout, heights, viewport).zoom : 1
+  return Math.min(2.5, fitZoom + 0.1)
+}
 export function targetReading(
   state: ReadingState,
   viewId: string,
@@ -62,11 +89,13 @@ export function targetReading(
   layout: MapLayout | undefined,
   heights: Heights,
   viewport: { width: number; height: number },
+  targetZoom?: number,
 ): ReadingState {
   const next = {
     ...state,
     viewId,
     selectedNodeId: nodeId,
+    detailHidden: false,
     detailScroll: state.viewId === viewId && state.selectedNodeId === nodeId ? state.detailScroll : 0,
     focusSource: nodeId,
   }
@@ -74,7 +103,9 @@ export function targetReading(
     .find((v) => v.viewId === viewId)
     ?.nodes.find((n) => n.nodeId === nodeId)
   if (!position) return next
-  const zoom = Math.min(1.4, Math.max(state.cameras[viewId]?.zoom ?? 1, 1.05))
+  const zoom = targetZoom !== undefined
+    ? Math.max(0.02, Math.min(2.5, targetZoom))
+    : Math.min(1.4, Math.max(state.cameras[viewId]?.zoom ?? 1, 1.05))
   return {
     ...next,
     cameras: {
