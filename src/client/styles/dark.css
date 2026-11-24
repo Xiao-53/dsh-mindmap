@@ -960,4 +960,5 @@
 .dsh-atlas[data-atlas-theme="dark"] .edge-focus-in { --edge-primary: #9ab6ca; }
 .dsh-atlas[data-atlas-theme="dark"] .edge-focus-out { --edge-primary: #9ac4a3; }
 .dsh-atlas[data-atlas-theme="dark"] .edge-focus-supplement { --edge-secondary: #d3ad86; }
+.dsh-atlas[data-atlas-theme="dark"] .edge-focus-halo { stroke: var(--canvas, #1c1a17); }
 .dsh-atlas[data-atlas-theme="dark"] .edge-dimmed { pointer-events: none; }

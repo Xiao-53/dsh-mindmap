@@ -313,6 +313,7 @@ export function ReadingPane(props: ReadingPaneProps) {
             layoutMode={viewLayout?.mode ?? 'vertical'}
             onLayout={mode => vp.changeLayout(mode)}
             onReset={props.offline ? undefined : () => vp.changeLayout('vertical', true)}
+            onTidyUnlocked={props.offline ? undefined : () => vp.relayoutPartial({ scope: 'unlocked' })}
             offline={props.offline}
             saveStatus={props.offline ? undefined : {
               state: doc.isSaving ? 'saving' : doc.saveError ? 'error' : vp.nodeDragging || vp.draft || doc.editor.current?.dirty ? 'unsaved' : 'saved',

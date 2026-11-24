@@ -1,7 +1,15 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { fillLayout, nodeHeight, placeBucketNodes, relayoutView, availableModes } from '../../src/shared/layout.ts'
-import { edgeGeometry } from '../../src/shared/edge-geometry.ts'
+import {
+  GROUP_PAD_TOP,
+  fillLayout,
+  nodeHeight,
+  placeBucketNodes,
+  relayoutView,
+  relayoutViewPartial,
+  availableModes,
+} from '../../src/shared/layout.ts'
+import { createConnections, edgeGeometry } from '../../src/shared/edge-geometry.ts'
 import {
   NavigationTransition,
   fitCameraForView,
@@ -505,4 +513,374 @@ test('多分组跨段避让内列直穿与线段重合，消除首行空洞与�
   assert.equal(gridView.groups[0].width, gridView.groups[2].width)
   assert.equal(gridView.groups[1].x, gridView.groups[3].x)
   assert.equal(gridView.groups[1].width, gridView.groups[3].width)
+})
+
+function sampleCurvePoints(d: string, steps = 40): { x: number; y: number }[] {
+  const nums = d.match(/-?\d+(?:\.\d+)?/g)!.map(Number)
+  const pts: { x: number; y: number }[] = []
+  if (d.includes(' C')) {
+    const [x0, y0, c1x, c1y, c2x, c2y, x1, y1] = nums
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps
+      const u = 1 - t
+      pts.push({
+        x: u * u * u * x0 + 3 * u * u * t * c1x + 3 * u * t * t * c2x + t * t * t * x1,
+        y: u * u * u * y0 + 3 * u * u * t * c1y + 3 * u * t * t * c2y + t * t * t * y1,
+      })
+    }
+  } else {
+    const [x0, y0, x1, y1] = nums
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps
+      pts.push({ x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t })
+    }
+  }
+  return pts
+}
+
+function countCurveCardPiercings(
+  rects: Record<string, { x: number; y: number; width: number; height: number }>,
+  relations: { id: string; fromNodeId: string; toNodeId: string; type: string }[],
+  groups?: readonly { x: number; y: number; width: number; height: number }[],
+): number {
+  const conn = createConnections(rects, relations, undefined, groups ? { groups } : undefined)
+  let total = 0
+  for (const seg of conn.segments) {
+    if (seg.self) continue
+    const pts = sampleCurvePoints(seg.d, 40)
+    for (const [id, r] of Object.entries(rects)) {
+      if (id === seg.relation.fromNodeId || id === seg.relation.toNodeId) continue
+      const x0 = r.x + 4
+      const y0 = r.y + 4
+      const x1 = r.x + r.width - 4
+      const y1 = r.y + r.height - 4
+      if (pts.some((p) => p.x > x0 && p.x < x1 && p.y > y0 && p.y < y1)) {
+        total++
+      }
+    }
+  }
+  return total
+}
+
+test('014 SC-001 极端变高卡片（86–260px）实高零重叠与零高度错位纵向穿卡', () => {
+  const map = emptyMap()
+  const ids = ['a1', 'a2', 'a3', 'a4', 'b1', 'b2', 'b3', 'b4', 'c1', 'c2', 'c3']
+  map.nodes = ids.map((id) => ({ id, title: id, summary: '', category: 'blue', icon: 'book' }))
+  map.views[0].groups = [
+    { id: 'g1', title: '组一', number: '1', category: 'blue' },
+    { id: 'g2', title: '组二', number: '2', category: 'sage' },
+    { id: 'g3', title: '组三', number: '3', category: 'gold' },
+  ]
+  map.views[0].occurrences = [
+    { nodeId: 'a1', groupId: 'g1' }, { nodeId: 'a2', groupId: 'g1' }, { nodeId: 'a3', groupId: 'g1' }, { nodeId: 'a4', groupId: 'g1' },
+    { nodeId: 'b1', groupId: 'g2' }, { nodeId: 'b2', groupId: 'g2' }, { nodeId: 'b3', groupId: 'g2' }, { nodeId: 'b4', groupId: 'g2' },
+    { nodeId: 'c1', groupId: 'g3' }, { nodeId: 'c2', groupId: 'g3' }, { nodeId: 'c3', groupId: 'g3' },
+  ]
+  map.relations = [
+    { id: 'r1', fromNodeId: 'a1', toNodeId: 'a2', type: 'dependency' },
+    { id: 'r2', fromNodeId: 'a2', toNodeId: 'a3', type: 'dependency' },
+    { id: 'r3', fromNodeId: 'a3', toNodeId: 'a4', type: 'dependency' },
+    { id: 'r4', fromNodeId: 'a4', toNodeId: 'b1', type: 'dependency' },
+    { id: 'r5', fromNodeId: 'a1', toNodeId: 'b2', type: 'dependency' },
+    { id: 'r6', fromNodeId: 'b1', toNodeId: 'b2', type: 'dependency' },
+    { id: 'r7', fromNodeId: 'b2', toNodeId: 'b3', type: 'dependency' },
+    { id: 'r8', fromNodeId: 'b3', toNodeId: 'b4', type: 'dependency' },
+    { id: 'r9', fromNodeId: 'b4', toNodeId: 'c1', type: 'dependency' },
+    { id: 'r10', fromNodeId: 'b2', toNodeId: 'c2', type: 'dependency' },
+    { id: 'r11', fromNodeId: 'c1', toNodeId: 'c2', type: 'dependency' },
+    { id: 'r12', fromNodeId: 'c2', toNodeId: 'c3', type: 'dependency' },
+  ]
+  map.views[0].relationIds = map.relations.map((r) => r.id)
+  const heights: Record<string, number> = {
+    'root/a1': 260, 'root/a2': 86, 'root/a3': 180, 'root/a4': 92,
+    'root/b1': 90, 'root/b2': 250, 'root/b3': 88, 'root/b4': 230,
+    'root/c1': 240, 'root/c2': 86, 'root/c3': 170,
+  }
+
+  for (const view of [fillLayout(map, undefined, heights).views[0], relayoutView(map, 'root', 'vertical', heights)]) {
+    // 实高物理零重叠
+    for (let i = 0; i < view.nodes.length; i++) {
+      for (let j = i + 1; j < view.nodes.length; j++) {
+        const a = view.nodes[i]
+        const b = view.nodes[j]
+        const ha = nodeHeight(heights, 'root', a.nodeId)
+        const hb = nodeHeight(heights, 'root', b.nodeId)
+        assert.equal(a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + hb && a.y + ha > b.y, false)
+      }
+    }
+    // 每个分组按真实高度完整包裹全部组内卡片
+    for (const occ of map.views[0].occurrences) {
+      const n = view.nodes.find((item) => item.nodeId === occ.nodeId)!
+      const g = view.groups.find((item) => item.groupId === occ.groupId)!
+      const h = nodeHeight(heights, 'root', n.nodeId)
+      assert.ok(n.y >= g.y + GROUP_PAD_TOP - 1e-6)
+      assert.ok(n.y + h <= g.y + g.height + 1e-6)
+    }
+    // 不出现非拱桥同列高度错位纵向穿卡
+    const rects = Object.fromEntries(
+      view.nodes.map((n) => [n.nodeId, { x: n.x, y: n.y, width: n.width, height: nodeHeight(heights, 'root', n.nodeId) }]),
+    )
+    const conn = createConnections(rects, map.relations, undefined, { groups: view.groups })
+    for (const seg of conn.segments) {
+      if (seg.source.side !== 'bottom' || seg.target.side !== 'top') continue
+      const pts = sampleCurvePoints(seg.d, 40)
+      for (const [id, r] of Object.entries(rects)) {
+        if (id === seg.relation.fromNodeId || id === seg.relation.toNodeId) continue
+        assert.equal(
+          pts.some((p) => p.x > r.x + 4 && p.x < r.x + r.width - 4 && p.y > r.y + 4 && p.y < r.y + r.height - 4),
+          false,
+          `纵向连线 ${seg.relation.id} 不应穿透卡片 ${id}`,
+        )
+      }
+    }
+  }
+})
+
+test('014 SC-001 2×2 强耦合田字视图左右相邻组向内侧靠拢且穿卡 <= 2', () => {
+  const map = emptyMap()
+  const ids = ['a1', 'a2', 'a3', 'b1', 'b2', 'b3', 'c1', 'c2', 'c3', 'd1', 'd2', 'd3']
+  map.nodes = ids.map((id) => ({ id, title: id, summary: '', category: 'blue', icon: 'book' }))
+  map.views[0].groups = [
+    { id: 'g1', title: '左上', number: '1', category: 'blue' },
+    { id: 'g2', title: '右上', number: '2', category: 'sage' },
+    { id: 'g3', title: '左下', number: '3', category: 'gold' },
+    { id: 'g4', title: '右下', number: '4', category: 'plum' },
+  ]
+  map.views[0].occurrences = [
+    { nodeId: 'a1', groupId: 'g1' }, { nodeId: 'a2', groupId: 'g1' }, { nodeId: 'a3', groupId: 'g1' },
+    { nodeId: 'b1', groupId: 'g2' }, { nodeId: 'b2', groupId: 'g2' }, { nodeId: 'b3', groupId: 'g2' },
+    { nodeId: 'c1', groupId: 'g3' }, { nodeId: 'c2', groupId: 'g3' }, { nodeId: 'c3', groupId: 'g3' },
+    { nodeId: 'd1', groupId: 'g4' }, { nodeId: 'd2', groupId: 'g4' }, { nodeId: 'd3', groupId: 'g4' },
+  ]
+  map.relations = [
+    // 左右强耦合连线
+    { id: 'lr1', fromNodeId: 'a1', toNodeId: 'b3', type: 'dependency' },
+    { id: 'lr2', fromNodeId: 'c1', toNodeId: 'd3', type: 'dependency' },
+    // 组内与上下连线
+    { id: 'i1', fromNodeId: 'a2', toNodeId: 'a1', type: 'dependency' },
+    { id: 'i2', fromNodeId: 'b3', toNodeId: 'b2', type: 'dependency' },
+    { id: 'v1', fromNodeId: 'a3', toNodeId: 'c3', type: 'dependency' },
+    { id: 'v2', fromNodeId: 'b1', toNodeId: 'd1', type: 'dependency' },
+  ]
+  map.views[0].relationIds = map.relations.map((r) => r.id)
+
+  const grid = relayoutView(map, 'root', 'grid', {})
+  const byId = new Map(grid.nodes.map((n) => [n.nodeId, n]))
+  // 同列分组框对齐且左右间保留标准组距
+  assert.equal(grid.groups[0].x, grid.groups[2].x)
+  assert.equal(grid.groups[0].width, grid.groups[2].width)
+  assert.equal(grid.groups[1].x, grid.groups[3].x)
+  assert.equal(grid.groups[1].width, grid.groups[3].width)
+  assert.ok(grid.groups[1].x >= grid.groups[0].x + grid.groups[0].width + 48)
+
+  // 左右直连端点向内侧边界列靠拢（左组靠右、右组靠左）
+  const g1MaxX = Math.max(...['a1', 'a2', 'a3'].map((id) => byId.get(id)!.x))
+  const g2MinX = Math.min(...['b1', 'b2', 'b3'].map((id) => byId.get(id)!.x))
+  assert.equal(byId.get('a1')!.x, g1MaxX)
+  assert.equal(byId.get('b3')!.x, g2MinX)
+
+  const rects = Object.fromEntries(grid.nodes.map((n) => [n.nodeId, { x: n.x, y: n.y, width: n.width, height: 130 }]))
+  const piercings = countCurveCardPiercings(rects, map.relations, grid.groups)
+  assert.ok(piercings <= 2, `田字视图穿卡次数 ${piercings} > 2`)
+})
+
+test('014 SC-002 组内闭环与跨分组长回边确定性收敛，回边端点优先对齐最外侧边界列', () => {
+  const map = emptyMap()
+  const ids = ['a1', 'a2', 'a3', 'b1', 'b2', 'b3', 'c1', 'c2', 'c3']
+  map.nodes = ids.map((id) => ({ id, title: id, summary: '', category: 'blue', icon: 'book' }))
+  map.views[0].groups = [
+    { id: 'g1', title: '起点组', number: '1', category: 'blue' },
+    { id: 'g2', title: '闭环组', number: '2', category: 'terra' },
+    { id: 'g3', title: '终点组', number: '3', category: 'plum' },
+  ]
+  map.views[0].occurrences = [
+    { nodeId: 'a1', groupId: 'g1' }, { nodeId: 'a2', groupId: 'g1' }, { nodeId: 'a3', groupId: 'g1' },
+    { nodeId: 'b1', groupId: 'g2' }, { nodeId: 'b2', groupId: 'g2' }, { nodeId: 'b3', groupId: 'g2' },
+    { nodeId: 'c1', groupId: 'g3' }, { nodeId: 'c2', groupId: 'g3' }, { nodeId: 'c3', groupId: 'g3' },
+  ]
+  map.relations = [
+    { id: 'a12', fromNodeId: 'a1', toNodeId: 'a2', type: 'dependency' },
+    { id: 'a23', fromNodeId: 'a2', toNodeId: 'a3', type: 'dependency' },
+    // 组内 3 节点闭环 + 2-cycle 双向补充边
+    { id: 'b12', fromNodeId: 'b1', toNodeId: 'b2', type: 'dependency' },
+    { id: 'b21', fromNodeId: 'b2', toNodeId: 'b1', type: 'supplement' },
+    { id: 'b23', fromNodeId: 'b2', toNodeId: 'b3', type: 'dependency' },
+    { id: 'b31', fromNodeId: 'b3', toNodeId: 'b1', type: 'dependency' },
+    // 跨组主链路 + 跨多分组长反馈回边 c3 -> a1
+    { id: 'ab', fromNodeId: 'a2', toNodeId: 'b1', type: 'dependency' },
+    { id: 'bc', fromNodeId: 'b3', toNodeId: 'c1', type: 'dependency' },
+    { id: 'c12', fromNodeId: 'c1', toNodeId: 'c2', type: 'dependency' },
+    { id: 'c23', fromNodeId: 'c2', toNodeId: 'c3', type: 'dependency' },
+    { id: 'feedback', fromNodeId: 'c3', toNodeId: 'a1', type: 'dependency' },
+  ]
+  map.views[0].relationIds = map.relations.map((r) => r.id)
+
+  const first = relayoutView(map, 'root', 'vertical', {})
+  for (let i = 0; i < 9; i++) {
+    assert.deepEqual(relayoutView(map, 'root', 'vertical', {}), first)
+  }
+  const byId = new Map(first.nodes.map((n) => [n.nodeId, n]))
+  const xs = first.nodes.map((n) => n.x)
+  const minX = Math.min(...xs)
+  const maxX = Math.max(...xs)
+  // 跨组长反馈回边两端对齐最外侧边界列，避免穿心经过中间分组
+  assert.equal(byId.get('c3')!.x, byId.get('a1')!.x)
+  assert.ok(byId.get('a1')!.x === minX || byId.get('a1')!.x === maxX, '跨组回边端点应落于最外侧边界列')
+  // 组内闭环入口不被倒置在下方
+  assert.ok(byId.get('b1')!.y <= byId.get('b3')!.y)
+})
+
+test('014 SC-005 邻居拖出分组框后新增同组节点优先落回框内最近空槽且旧位置零漂移', () => {
+  const map = emptyMap()
+  map.nodes = [
+    { id: 'n1', title: 'N1', summary: '', category: 'blue', icon: 'book' },
+    { id: 'n2', title: 'N2', summary: '', category: 'blue', icon: 'book' },
+    { id: 'n3', title: 'N3', summary: '', category: 'blue', icon: 'book' },
+  ]
+  map.views[0].groups = [{ id: 'g1', title: '组一', number: '1', category: 'blue' }]
+  map.views[0].occurrences = [
+    { nodeId: 'n1', groupId: 'g1' },
+    { nodeId: 'n2', groupId: 'g1' },
+    { nodeId: 'n3', groupId: 'g1' },
+  ]
+  const base = fillLayout(map, undefined, {})
+  const oldGroup = { ...base.views[0].groups[0] }
+  // 将 n3 手动拖出分组框右侧远端，腾出框内第 3 列空槽
+  base.views[0].nodes = base.views[0].nodes.map((n) =>
+    n.nodeId === 'n3' ? { ...n, x: oldGroup.x + oldGroup.width + 260, y: oldGroup.y + 40, manual: true } : n,
+  )
+  const draggedN3 = { ...base.views[0].nodes.find((n) => n.nodeId === 'n3')! }
+
+  // 新增同组节点 n4 并仅与已脱框的 n3 相连
+  map.nodes.push({ id: 'n4', title: 'N4', summary: '', category: 'sage', icon: 'spark' })
+  map.views[0].occurrences.push({ nodeId: 'n4', groupId: 'g1' })
+  map.relations.push({ id: 'e34', fromNodeId: 'n3', toNodeId: 'n4', type: 'dependency' })
+  map.views[0].relationIds.push('e34')
+
+  const next = fillLayout(map, base, {})
+  const view = next.views[0]
+  assert.deepEqual(view.groups[0], oldGroup)
+  assert.deepEqual(view.nodes.find((n) => n.nodeId === 'n3'), draggedN3)
+  const placedN4 = view.nodes.find((n) => n.nodeId === 'n4')!
+  assert.ok(
+    placedN4.x >= oldGroup.x &&
+      placedN4.x + placedN4.width <= oldGroup.x + oldGroup.width &&
+      placedN4.y >= oldGroup.y &&
+      placedN4.y + 130 <= oldGroup.y + oldGroup.height,
+    `新增同组节点 (${placedN4.x}, ${placedN4.y}) 应落回分组框内`,
+  )
+})
+
+test('014 SC-005 relayoutViewPartial 局部整理保留锁定节点与他组零位移且全图零重叠', () => {
+  const map = emptyMap()
+  const ids = ['a1', 'a2', 'a3', 'a4', 'b1', 'b2', 'b3']
+  map.nodes = ids.map((id) => ({ id, title: id, summary: '', category: 'blue', icon: 'book' }))
+  map.views[0].groups = [
+    { id: 'g1', title: '组一', number: '1', category: 'blue' },
+    { id: 'g2', title: '组二', number: '2', category: 'sage' },
+  ]
+  map.views[0].occurrences = [
+    { nodeId: 'a1', groupId: 'g1' }, { nodeId: 'a2', groupId: 'g1' }, { nodeId: 'a3', groupId: 'g1' }, { nodeId: 'a4', groupId: 'g1' },
+    { nodeId: 'b1', groupId: 'g2' }, { nodeId: 'b2', groupId: 'g2' }, { nodeId: 'b3', groupId: 'g2' },
+  ]
+  map.relations = [
+    { id: 'r1', fromNodeId: 'a1', toNodeId: 'a2', type: 'dependency' },
+    { id: 'r2', fromNodeId: 'a2', toNodeId: 'a3', type: 'dependency' },
+    { id: 'r3', fromNodeId: 'a3', toNodeId: 'a4', type: 'dependency' },
+    { id: 'r4', fromNodeId: 'a4', toNodeId: 'b1', type: 'dependency' },
+    { id: 'r5', fromNodeId: 'b1', toNodeId: 'b2', type: 'dependency' },
+    { id: 'r6', fromNodeId: 'b2', toNodeId: 'b3', type: 'dependency' },
+  ]
+  map.views[0].relationIds = map.relations.map((r) => r.id)
+
+  const base = relayoutView(map, 'root', 'vertical', {})
+  // 构造偏离网格的 manual: true 锁定节点，并打乱未锁定节点
+  const current = {
+    ...base,
+    nodes: base.nodes.map((n) => {
+      if (n.nodeId === 'a1') return { ...n, x: 185, y: 145, manual: true }
+      if (n.nodeId === 'b1') return { ...n, x: 430, y: base.groups[1].y + 80, manual: true }
+      return { ...n }
+    }),
+  }
+  const pinnedA1 = { ...current.nodes.find((n) => n.nodeId === 'a1')! }
+  const pinnedB1 = { ...current.nodes.find((n) => n.nodeId === 'b1')! }
+
+  // 1) scope: 'unlocked'
+  const tidied = relayoutViewPartial(map, current, {}, { scope: 'unlocked' })
+  assert.deepEqual(tidied.nodes.find((n) => n.nodeId === 'a1'), pinnedA1)
+  assert.deepEqual(tidied.nodes.find((n) => n.nodeId === 'b1'), pinnedB1)
+  assert.deepEqual(tidied.groups, current.groups)
+  for (let i = 0; i < tidied.nodes.length; i++) {
+    for (let j = i + 1; j < tidied.nodes.length; j++) {
+      const a = tidied.nodes[i]
+      const b = tidied.nodes[j]
+      assert.equal(a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + 130 && a.y + 130 > b.y, false)
+    }
+  }
+
+  // 2) 全锁定边界原样返回
+  const allLocked = { ...current, nodes: current.nodes.map((n) => ({ ...n, manual: true })) }
+  assert.deepEqual(relayoutViewPartial(map, allLocked, {}, { scope: 'unlocked' }), allLocked)
+
+  // 3) scope: { groupId: 'g1' } 保持 g2 节点与全部组框零位移
+  const g1Only = relayoutViewPartial(map, current, {}, { scope: { groupId: 'g1' } })
+  for (const id of ['b1', 'b2', 'b3']) {
+    assert.deepEqual(g1Only.nodes.find((n) => n.nodeId === id), current.nodes.find((n) => n.nodeId === id))
+  }
+  assert.deepEqual(g1Only.groups, current.groups)
+  for (let i = 0; i < g1Only.nodes.length; i++) {
+    for (let j = i + 1; j < g1Only.nodes.length; j++) {
+      const a = g1Only.nodes[i]
+      const b = g1Only.nodes[j]
+      assert.equal(a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + 130 && a.y + 130 > b.y, false)
+    }
+  }
+
+  // 4) refitTargetGroup: true 仅紧凑重算目标组框，保持他组零位移
+  const g1Refit = relayoutViewPartial(map, current, {}, { scope: { groupId: 'g1' }, refitTargetGroup: true })
+  assert.deepEqual(g1Refit.groups[1], current.groups[1])
+  for (const id of ['b1', 'b2', 'b3']) {
+    assert.deepEqual(g1Refit.nodes.find((n) => n.nodeId === id), current.nodes.find((n) => n.nodeId === id))
+  }
+  for (const id of ['a1', 'a2', 'a3', 'a4']) {
+    const n = g1Refit.nodes.find((item) => item.nodeId === id)!
+    assert.ok(n.x >= g1Refit.groups[0].x && n.x + n.width <= g1Refit.groups[0].x + g1Refit.groups[0].width)
+    assert.ok(n.y >= g1Refit.groups[0].y && n.y + 130 <= g1Refit.groups[0].y + g1Refit.groups[0].height)
+  }
+})
+
+test('014 SC-006/SC-007 20 节点满载重排瞬时完成且 10 次结果 100% 一致', () => {
+  const big = emptyMap()
+  big.nodes = Array.from({ length: 20 }, (_, i) => ({
+    id: `n${i}`, title: `N${i}`, summary: '', category: 'blue', icon: 'book',
+  }))
+  big.views[0].groups = [
+    { id: 'g1', title: '组1', number: '1', category: 'blue' },
+    { id: 'g2', title: '组2', number: '2', category: 'sage' },
+    { id: 'g3', title: '组3', number: '3', category: 'gold' },
+    { id: 'g4', title: '组4', number: '4', category: 'plum' },
+  ]
+  big.views[0].occurrences = big.nodes.map((n, i) => ({
+    nodeId: n.id,
+    groupId: `g${Math.min(4, Math.floor(i / 5) + 1)}`,
+  }))
+  big.relations = Array.from({ length: 32 }, (_, i) => ({
+    id: `e${i}`,
+    fromNodeId: `n${i % 20}`,
+    toNodeId: `n${(i * 5 + 3) % 20}`,
+    type: i % 4 === 0 ? 'supplement' : 'dependency',
+  }))
+  big.views[0].relationIds = big.relations.map((r) => r.id)
+  const heights = Object.fromEntries(big.nodes.map((n, i) => [`root/${n.id}`, 90 + (i % 4) * 45]))
+
+  for (const mode of ['vertical', 'grid'] as const) {
+    const started = performance.now()
+    const baseline = relayoutView(big, 'root', mode, heights)
+    const elapsed = performance.now() - started
+    assert.ok(elapsed < 500, `${mode} 20 节点重排耗时 ${elapsed.toFixed(1)}ms 过高`)
+    for (let run = 0; run < 9; run++) {
+      assert.deepEqual(relayoutView(big, 'root', mode, heights), baseline)
+    }
+  }
 })

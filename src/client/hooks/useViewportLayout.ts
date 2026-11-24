@@ -1,5 +1,5 @@
 import { useLayoutEffect, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
-import { fillLayout, relayoutView, type Heights } from '../../shared/layout.ts'
+import { fillLayout, relayoutView, relayoutViewPartial, type Heights, type PartialRelayoutOptions } from '../../shared/layout.ts'
 import type { LayoutMode, MapLayout, MapSnapshot, ViewLayout } from '../../shared/map-types.ts'
 import { workspaceComparisonKey } from '../../shared/workspace-path.ts'
 import type { EditSession } from '../edit-session.ts'
@@ -168,6 +168,27 @@ export function useViewportLayout({
     }
   }
 
+  const relayoutPartial = (options: PartialRelayoutOptions) => {
+    const current = layoutRef.current
+    if (!snapshot || !reading || !current || measured !== snapshot.fingerprint || navigationBusy.current) return
+    const old = current.views.find(view => view.viewId === reading.viewId)
+    if (!old) return
+    const active = editor.current
+    if (!offline && !active?.finishInput()) return
+    try {
+      const next = relayoutViewPartial(active?.working.map ?? snapshot.map, old, heights, options)
+      if (offline) {
+        setDraft(previous => ({
+          base: snapshot,
+          revision: (previous?.revision ?? 0) + 1,
+          layout: { ...current, views: current.views.map(view => view.viewId === next.viewId ? next : view) },
+        }))
+      } else active?.setLayout(next, old)
+    } catch (error) {
+      notify(String(error))
+    }
+  }
+
   const startDrag = (viewLayout: ViewLayout, onCleanupUi?: () => void) => {
     dragCommitted.current = false
     if (offline) return
@@ -214,6 +235,7 @@ export function useViewportLayout({
     moveNode,
     saveLayoutNow,
     changeLayout,
+    relayoutPartial,
     startDrag,
     commitDrag,
     endDrag,

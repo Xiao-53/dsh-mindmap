@@ -7,8 +7,8 @@ import { viewPath } from '../navigation.ts'
 import { Breadcrumbs } from './Breadcrumbs.tsx'
 import { ToolIcon } from './ToolIcon.tsx'
 import { useAtlasThemeContext } from '../theme.ts'
-export function MapHeader({ map, view, navigate, search, refresh, library, exportMap, offline, saveStatus, layoutMode, onLayout, onReset }: {
-  layoutMode?:LayoutMode; onLayout?:(mode:LayoutMode)=>void; onReset?:()=>void
+export function MapHeader({ map, view, navigate, search, refresh, library, exportMap, offline, saveStatus, layoutMode, onLayout, onReset, onTidyUnlocked }: {
+  layoutMode?:LayoutMode; onLayout?:(mode:LayoutMode)=>void; onReset?:()=>void; onTidyUnlocked?:()=>void
   map: KnowledgeMap; view: View; maps: MapEntry[]; selectMap: (id: string) => void
   navigate: (id: string) => void; search: () => void
   refresh: () => void; library: () => void
@@ -38,6 +38,7 @@ export function MapHeader({ map, view, navigate, search, refresh, library, expor
         </svg>
       </button>}
       {onReset && <button className="atlas-host-button atlas-quiet-icon" onClick={onReset} aria-label="重置为纵向排列" title="重置排列"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 8h9a6 6 0 1 1 0 12h-3M5 8l4-4M5 8l4 4"/></svg></button>}
+      {onTidyUnlocked && <button className="atlas-host-button atlas-quiet-icon" onClick={onTidyUnlocked} aria-label="整理未锁定节点" title="整理未锁定节点"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.2"/><rect x="14" y="4" width="6" height="6" rx="1.2"/><rect x="4" y="14" width="6" height="6" rx="1.2"/><path d="M14 17h6M17 14v6"/></svg></button>}
       <button type="button" className="atlas-host-button atlas-quiet-icon" aria-label={theme.dark ? '切换浅色模式' : '切换深色模式'} title={theme.dark ? '切换浅色模式' : '切换深色模式'} onClick={theme.toggle}><ToolIcon name={theme.dark ? 'sun' : 'moon'}/></button>
       {!offline && <button className="atlas-host-button atlas-refresh" aria-label="刷新地图" title="刷新地图" onClick={refresh}><ToolIcon name="refresh"/></button>}
       {saveStatus && <SaveStatus status={saveStatus}/>}

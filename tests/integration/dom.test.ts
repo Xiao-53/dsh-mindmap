@@ -14,7 +14,7 @@ for (const [k, v] of [['window', bootDom.window], ['document', bootDom.window.do
   bootOriginals.set(k, Object.getOwnPropertyDescriptor(globalThis, k))
   Object.defineProperty(globalThis, k, { value: v, configurable: true, writable: true })
 }
-const { AtlasPane, RenderNote, Icon, createOfflineHtml, NeighborPills, computeViewNeighbors, classifyEdgeFocus, MapScene } = await import(
+const { AtlasPane, ReadingPane, RenderNote, Icon, createOfflineHtml, NeighborPills, computeViewNeighbors, classifyEdgeFocus, MapScene } = await import(
   pathToFileURL(resolve('node_modules/.cache/dsh-mindmap/ui.mjs')).href
 )
 await import('react-dom/client')
@@ -631,4 +631,285 @@ test('MapScene 四层渲染：常态仅底层连线与胶囊，单击选中才�
   assert.ok(picked.querySelector(`.edges-focus [data-relation="${first.id}"]`))
   assert.equal(picked.querySelector(`.edges-base [data-relation="${first.id}"]`), null)
   assert.ok(picked.querySelector(`.edge-pill[data-relation="${first.id}"].is-focused`))
+})
+
+test('014 MapScene 单击选中挂载高亮光晕、悬停不提层，水平短边胶囊输出内联 maxWidth', async () => {
+  const { emptyMap } = await import('../support/maps.ts')
+  const map = emptyMap()
+  map.nodes = [
+    { id: 'a', title: '节点甲', summary: '', category: 'blue', icon: 'book' },
+    { id: 'b', title: '节点乙', summary: '', category: 'sage', icon: 'idea' },
+  ]
+  map.views[0].groups = [{ id: 'g1', title: '组一', number: '1', category: 'blue' }]
+  map.views[0].occurrences = [
+    { nodeId: 'a', groupId: 'g1' },
+    { nodeId: 'b', groupId: 'g1' },
+  ]
+  map.relations = [{ id: 'ab', fromNodeId: 'a', toNodeId: 'b', type: 'dependency', label: '前置因果依赖关系' }]
+  map.views[0].relationIds = ['ab']
+  const viewLayout = {
+    viewId: 'root',
+    mode: 'vertical' as const,
+    nodes: [
+      { nodeId: 'a', x: 66, y: 110, width: 236, manual: false },
+      { nodeId: 'b', x: 393, y: 110, width: 236, manual: false }, // 精确 91px 水平净空
+    ],
+    groups: [{ groupId: 'g1', x: 42, y: 48, width: 611, height: 178 }],
+  }
+
+  const dom = new JSDOM('<!doctype html><div id="root"></div>', { url: 'http://localhost/' })
+  const originals = new Map<string, PropertyDescriptor | undefined>()
+  for (const [key, value] of [
+    ['window', dom.window],
+    ['document', dom.window.document],
+    ['Element', dom.window.Element],
+    ['HTMLElement', dom.window.HTMLElement],
+    ['Node', dom.window.Node],
+    ['IS_REACT_ACT_ENVIRONMENT', true],
+  ] as const) {
+    originals.set(key, Object.getOwnPropertyDescriptor(globalThis, key))
+    Object.defineProperty(globalThis, key, { value, configurable: true, writable: true })
+  }
+  const { createRoot } = await import('react-dom/client')
+  const container = dom.window.document.querySelector('#root')!
+  const root = createRoot(container)
+  try {
+    await act(async () => {
+      root.render(createElement(MapScene, { map, view: map.views[0], layout: viewLayout, heights: {}, onOpen() {}, onNote() {} }))
+    })
+    // 常态及悬停绝不挂载 edges-focus 或 edge-focus-halo
+    assert.equal(container.querySelector('.edges-focus'), null)
+    assert.equal(container.querySelector('.edge-focus-halo'), null)
+    const nodeA = container.querySelector<HTMLElement>('[data-node="a"]')!
+    await act(async () => {
+      nodeA.dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true }))
+      nodeA.dispatchEvent(new dom.window.MouseEvent('mouseenter', { bubbles: false }))
+    })
+    assert.equal(container.querySelector('.edges-focus'), null)
+    assert.equal(container.querySelector('.edge-focus-halo'), null)
+
+    // 91px 水平短边胶囊渲染自适应内联 maxWidth（91 - 18 = 73px）
+    const pill = container.querySelector<HTMLElement>('.edge-labels .edge-pill[data-relation="ab"]')!
+    assert.equal(pill.style.maxWidth, '73px')
+
+    // 单击选中节点后，.edges-focus 挂载 .edge-focus-halo 且位于主连线路径之前
+    await act(async () => {
+      root.render(
+        createElement(MapScene, { map, view: map.views[0], layout: viewLayout, heights: {}, selected: 'a', onOpen() {}, onNote() {} }),
+      )
+    })
+    const focusGroup = container.querySelector('.edges-focus [data-relation="ab"]')!
+    const paths = Array.from(focusGroup.querySelectorAll('path'))
+    assert.ok(paths[0]?.classList.contains('edge-focus-halo'))
+    assert.ok(paths[1]?.classList.contains('edge'))
+  } finally {
+    await act(async () => root.unmount())
+    for (const [key, original] of originals) {
+      if (original) Object.defineProperty(globalThis, key, original)
+      else Reflect.deleteProperty(globalThis, key)
+    }
+    dom.window.close()
+  }
+})
+
+test('014 非离线工具栏“整理未锁定节点”保留手动拖动节点、整理未锁定节点且可撤销；离线模式不显示入口', async () => {
+  const { emptyMap } = await import('../support/maps.ts')
+  const map = emptyMap()
+  map.id = 'tidy-map'
+  map.nodes = [
+    { id: 'a', title: '甲', summary: '', category: 'blue', icon: 'book' },
+    { id: 'b', title: '乙', summary: '', category: 'sage', icon: 'idea' },
+    { id: 'c', title: '丙', summary: '', category: 'gold', icon: 'spark' },
+  ]
+  map.views[0].groups = [{ id: 'g1', title: '组一', number: '1', category: 'blue' }]
+  map.views[0].occurrences = [
+    { nodeId: 'a', groupId: 'g1' },
+    { nodeId: 'b', groupId: 'g1' },
+    { nodeId: 'c', groupId: 'g1' },
+  ]
+  map.relations = [
+    { id: 'ab', fromNodeId: 'a', toNodeId: 'b', type: 'dependency' },
+    { id: 'bc', fromNodeId: 'b', toNodeId: 'c', type: 'dependency' },
+  ]
+  map.views[0].relationIds = ['ab', 'bc']
+  // 初始布局故意把 b 和 c 对调，便于观察“整理未锁定节点”整理效果与一步撤销
+  let snapshot: any = {
+    map,
+    layout: {
+      schemaVersion: 2 as const,
+      mapId: map.id,
+      views: [
+        {
+          viewId: 'root',
+          mode: 'vertical' as const,
+          nodes: [
+            { nodeId: 'a', x: 66, y: 110, width: 236, manual: false },
+            { nodeId: 'b', x: 720, y: 110, width: 236, manual: false },
+            { nodeId: 'c', x: 393, y: 110, width: 236, manual: false },
+          ],
+          groups: [{ groupId: 'g1', x: 42, y: 48, width: 938, height: 178 }],
+        },
+      ],
+    },
+    notes: { a: '', b: '', c: '' },
+    resources: {},
+    files: [],
+    fingerprint: 'tidy-v1',
+    workspaceKey: 'ws-tidy',
+  }
+
+  const dom = new JSDOM('<!doctype html><div id="root"></div>', { url: 'https://atlas.test' })
+  const originals = new Map<string, PropertyDescriptor | undefined>()
+  for (const name of ['window', 'document', 'Element', 'HTMLElement', 'Node', 'NodeFilter', 'ResizeObserver', 'IS_REACT_ACT_ENVIRONMENT']) {
+    originals.set(name, Object.getOwnPropertyDescriptor(globalThis, name))
+  }
+  class Observer {
+    callback: (entries: unknown[]) => void
+    constructor(callback: (entries: unknown[]) => void) {
+      this.callback = callback
+    }
+    observe() {
+      this.callback([{ contentRect: { width: 1200, height: 800 } }])
+    }
+    disconnect() {}
+  }
+  for (const [key, value] of Object.entries({
+    window: dom.window,
+    document: dom.window.document,
+    Element: dom.window.Element,
+    HTMLElement: dom.window.HTMLElement,
+    Node: dom.window.Node,
+    NodeFilter: dom.window.NodeFilter,
+    ResizeObserver: Observer,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })) {
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value })
+  }
+  Object.defineProperty(dom.window, 'matchMedia', { value: () => ({ matches: true }) })
+  Object.defineProperty(dom.window.HTMLElement.prototype, 'getBoundingClientRect', {
+    value: () => ({ width: 236, height: 100, x: 0, y: 0, top: 0, left: 0, bottom: 100, right: 236 }),
+  })
+  for (const name of ['setPointerCapture', 'releasePointerCapture']) {
+    Object.defineProperty(dom.window.HTMLElement.prototype, name, { value: () => {} })
+  }
+  Object.defineProperty(dom.window.HTMLElement.prototype, 'hasPointerCapture', { value: () => true })
+
+  let state: any = { maps: {}, pending: {}, selectedMapId: 'tidy-map' }
+  const listeners = new Set<() => void>()
+  const update = (next: any) => {
+    state = next
+    listeners.forEach(fn => fn())
+  }
+  const actions = {
+    selectMap: (id: string) => update({ ...state, selectedMapId: id }),
+    setReading: (key: string, reading: any) => update({ ...state, maps: { ...state.maps, [key]: reading } }),
+    setPending: (key: string, pending: any) => update({ ...state, pending: { ...state.pending, [key]: pending } }),
+    setCamera: (key: string, seed: any, viewId: string, camera: any) => {
+      const reading = state.maps[key] ?? seed
+      actions.setReading(key, { ...reading, cameras: { ...reading.cameras, [viewId]: camera } })
+    },
+  }
+  let saveSeq = 0
+  const host = {
+    list: async () => ({ maps: [{ id: 'tidy-map', title: '局部整理图' }], diagnostics: [] }),
+    read: async () => snapshot,
+    commitEdit: async (req: any) => {
+      if (req.edit.kind === 'layout') {
+        const nextLayout = {
+          schemaVersion: 2 as const,
+          mapId: snapshot.map.id,
+          views: [...(snapshot.layout?.views ?? []).filter((v: any) => v.viewId !== req.edit.viewId), req.edit.layout],
+        }
+        saveSeq++
+        snapshot = { ...snapshot, layout: nextLayout, fingerprint: `tidy-saved-${saveSeq}` }
+      }
+      return { snapshot, committedFingerprint: snapshot.fingerprint, noChange: false }
+    },
+    watch: () => () => {},
+  }
+  const tab: any = { visible: true, navigation: { revision: 1, params: { mapId: 'tidy-map' } }, actions: { close: () => {} } }
+  const useStore = (selector: (v: any) => any) =>
+    selector(useSyncExternalStore(fn => { listeners.add(fn); return () => listeners.delete(fn) }, () => state))
+  const parsePos = (el: HTMLElement) => {
+    const m = /translate\((-?\d+(?:\.\d+)?)px,\s*(-?\d+(?:\.\d+)?)px\)/.exec(el.style.transform)
+    return m
+      ? { x: Number.parseFloat(m[1]), y: Number.parseFloat(m[2]) }
+      : { x: Number.parseFloat(el.style.left), y: Number.parseFloat(el.style.top) }
+  }
+
+  const { createRoot } = await import('react-dom/client')
+  const container = dom.window.document.querySelector('#root')!
+  const root = createRoot(container)
+  try {
+    // 1) 非离线模式：渲染按钮、拖动锁定节点 a、点击整理、再撤销恢复
+    await act(async () => {
+      root.render(
+        createElement(AtlasPane, {
+          host,
+          sessionId: 's-tidy',
+          actions,
+          useStore,
+          useTabInfo: () => ({ tab }),
+          inputActions: { captureInsertion: () => ({ start: 0, end: 0, draftRev: 1 }) },
+          insertReference: () => true,
+        }),
+      )
+    })
+    const tidyBtn = container.querySelector<HTMLButtonElement>('[aria-label="整理未锁定节点"]')
+    assert.ok(tidyBtn, '非离线模式应渲染整理未锁定节点按钮')
+
+    const nodeA = container.querySelector<HTMLElement>('[data-node="a"]')!
+    const nodeB = container.querySelector<HTMLElement>('[data-node="b"]')!
+    const startA = parsePos(nodeA)
+    const startB = parsePos(nodeB)
+    await act(async () => {
+      nodeA.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 100, clientY: 100 }))
+      nodeA.dispatchEvent(new dom.window.MouseEvent('pointermove', { bubbles: true, clientX: 140, clientY: 120 }))
+    })
+    await act(async () => {
+      nodeA.dispatchEvent(new dom.window.MouseEvent('pointerup', { bubbles: true, clientX: 140, clientY: 120 }))
+    })
+    const pinnedA = parsePos(container.querySelector<HTMLElement>('[data-node="a"]')!)
+    assert.equal(pinnedA.x, startA.x + 40)
+    assert.equal(pinnedA.y, startA.y + 20)
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[aria-label="整理未锁定节点"]')!.click()
+    })
+    const afterTidyA = parsePos(container.querySelector<HTMLElement>('[data-node="a"]')!)
+    const afterTidyB = parsePos(container.querySelector<HTMLElement>('[data-node="b"]')!)
+    assert.deepEqual(afterTidyA, pinnedA, '手动锁定节点坐标应保持零漂移')
+    assert.notDeepEqual(afterTidyB, startB, '未锁定节点应被重新整理到更优位置')
+
+    await act(async () => {
+      container.querySelector('.reading-pane')!.dispatchEvent(
+        new dom.window.KeyboardEvent('keydown', { key: 'z', metaKey: true, bubbles: true }),
+      )
+    })
+    assert.deepEqual(parsePos(container.querySelector<HTMLElement>('[data-node="b"]')!), startB, '撤销应一步恢复整理前布局')
+
+    // 2) 离线只读模式：不渲染“整理未锁定节点”入口
+    await act(async () => {
+      root.render(
+        createElement(ReadingPane, {
+          offline: true,
+          host: { list: host.list, read: host.read },
+          sessionId: 's-offline',
+          actions,
+          useStore,
+          useTabInfo: () => ({ tab }),
+          onLibrary: () => {},
+        }),
+      )
+    })
+    assert.ok(container.querySelector('.map-scene'))
+    assert.equal(container.querySelector('[aria-label="整理未锁定节点"]'), null, '离线模式不得渲染整理未锁定节点按钮')
+  } finally {
+    await act(async () => root.unmount())
+    for (const [key, original] of originals) {
+      if (original) Object.defineProperty(globalThis, key, original)
+      else Reflect.deleteProperty(globalThis, key)
+    }
+    dom.window.close()
+  }
 })

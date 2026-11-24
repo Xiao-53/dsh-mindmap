@@ -291,6 +291,15 @@
 .dsh-atlas .edges-focus {
   z-index: 5;
 }
+.dsh-atlas .edge-focus-halo {
+  fill: none;
+  stroke: var(--canvas, #faf7ef);
+  stroke-width: 5;
+  opacity: 0.72;
+  stroke-linecap: butt;
+  stroke-linejoin: round;
+  stroke-dasharray: none;
+}
 .dsh-atlas .edge-labels {
   position: absolute;
   inset: 0;

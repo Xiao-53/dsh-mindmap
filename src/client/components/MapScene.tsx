@@ -38,18 +38,19 @@ const SceneEdge = memo(function SceneEdge({relation:r,d,arrow,stem,focusRole}: {
   return <g data-relation={r.id} data-focus={focusRole === 'default' ? undefined : focusRole}
     className={focusRole === 'default' ? undefined : focusRole === 'dimmed' ? 'edge-dimmed' : `edge-focus-${focusRole}`}
     style={{opacity:focusRole === 'dimmed' ? .2 : focused ? secondary ? .88 : .96 : secondary ? .58 : .76}}>
+    {focused && <path className="edge-focus-halo" d={d} />}
     <path className={`edge ${secondary?'secondary':''}`} d={d} stroke={color} style={{opacity:1,strokeLinecap:'butt',strokeWidth:(secondary ? 1.8 : 2) + (focused ? .4 : 0)}} />
     <path d={stem} style={{fill:'none',stroke:color,strokeWidth:secondary?1.8:2,strokeDasharray:'none',strokeLinecap:'butt'}} />
     <path className="edge-arrow" d={arrow} style={{fill:color,stroke:'none'}} />
   </g>
 })
 // 关系名称为卡片之上、端口之下的 HTML 胶囊；位置由路由沿线避卡计算，悬停仅显示完整标题。
-const ScenePill = memo(function ScenePill({relation:r,x,y,focusRole}: {
-  focusRole: FocusRole; relation: EdgeRelation;x:number;y:number
+const ScenePill = memo(function ScenePill({relation:r,x,y,maxWidth,focusRole}: {
+  focusRole: FocusRole; relation: EdgeRelation;x:number;y:number;maxWidth?:number
 }) {
   const focused = focusRole !== 'default' && focusRole !== 'dimmed'
   const className = ['edge-pill', r.type==='supplement' && 'secondary', focused && 'is-focused', focusRole === 'dimmed' && 'is-dimmed', focused && `edge-focus-${focusRole}`].filter(Boolean).join(' ')
-  return <span className={className} data-relation={r.id} data-focus={focusRole === 'default' ? undefined : focusRole} title={r.label} style={{left:x,top:y}}>{r.label}</span>
+  return <span className={className} data-relation={r.id} data-focus={focusRole === 'default' ? undefined : focusRole} title={r.label} style={maxWidth !== undefined ? {left:x,top:y,maxWidth} : {left:x,top:y}}>{r.label}</span>
 })
 export function MapScene({ map, view, layout, heights, selected, onOpen, onSelect, onNote, onMenu, onMove, onCommit, onDragStart, onDragEnd, locked = false }: {
   map: KnowledgeMap; view: View; layout: ViewLayout; heights: Heights; selected?: string
@@ -72,12 +73,12 @@ export function MapScene({ map, view, layout, heights, selected, onOpen, onSelec
   const routeHintsRef=useRef<{ viewId: string; map: Map<string, EdgeRouteHint> }>({ viewId: view.id, map: new Map() })
   const connections=useMemo(()=>{
     const prevHints=routeHintsRef.current.viewId===view.id ? routeHintsRef.current.map : undefined
-    return createConnections(rects,edges,undefined,{hints:prevHints,dragging})
-  },[rects,edges,view.id,dragging])
+    return createConnections(rects,edges,undefined,{hints:prevHints,dragging,groups:visualLayout.groups})
+  },[rects,edges,view.id,dragging,visualLayout.groups])
   useLayoutEffect(()=>{
     routeHintsRef.current={viewId:view.id,map:connections.hints}
   },[view.id,connections])
-  const {ports,segments}=useAnimatedPorts(connections,rects,view.id,{dragging,hints:connections.hints})
+  const {ports,segments}=useAnimatedPorts(connections,rects,view.id,{dragging,hints:connections.hints,groups:visualLayout.groups})
   const handlers=useRef<SceneHandlers>({open:onOpen,select:onSelect,note:onNote,menu:onMenu,start:()=>{},commit:()=>{},end:()=>{}})
   handlers.current={open:onOpen,select:onSelect,note:onNote,menu:onMenu,
     move:onMove ? (id,x,y)=>{
@@ -106,7 +107,7 @@ export function MapScene({ map, view, layout, heights, selected, onOpen, onSelec
     <svg className="edges edges-base" aria-hidden="true">{baseEdges.map(renderEdge)}</svg>
     {visualLayout.nodes.map(node=><SceneNode key={node.nodeId} node={nodes.get(node.nodeId)!} layout={node} viewId={view.id} selected={selected===node.nodeId} locked={locked} handlers={handlers}/>)}
     {focusEdges.length>0 && <svg className="edges edges-focus" aria-hidden="true">{focusEdges.map(renderEdge)}</svg>}
-    <div className="edge-labels" aria-hidden="true">{roles.filter(({segment})=>segment.relation.label?.trim()).map(({segment,focusRole})=><ScenePill key={segment.relation.id} relation={segment.relation} focusRole={focusRole} x={segment.label.x} y={segment.label.y}/>)}</div>
+    <div className="edge-labels" aria-hidden="true">{roles.filter(({segment})=>segment.relation.label?.trim()).map(({segment,focusRole})=><ScenePill key={segment.relation.id} relation={segment.relation} focusRole={focusRole} x={segment.label.x} y={segment.label.y} maxWidth={segment.label.maxWidth}/>)}</div>
     <svg className="atlas-ports" aria-hidden="true" style={{position:'absolute',left:0,top:0,width:'100%',height:'100%',overflow:'visible',pointerEvents:'none',zIndex:9}}>
       {ports.map(port=><circle key={`${port.edgeIndex}-${port.role}`} data-edge={port.edgeIndex} data-side={port.side} data-node-port={port.nodeId} cx={port.x} cy={port.y} r={PORT_RADIUS} fill={port.role==='in'?'var(--port-in, #8699aa)':'var(--port-out-fill, #fffdf8)'} stroke={port.role==='in'?'var(--port-in, #8699aa)':'var(--port-out, #b38c97)'} strokeWidth={port.role==='in'?INPUT_PORT_STROKE:OUTPUT_PORT_STROKE}/>)}
     </svg>

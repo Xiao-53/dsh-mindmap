@@ -1,6 +1,6 @@
 {
   "name": "@xiao-53/dsh-mindmap",
-  "version": "0.4.5-preview.5",
+  "version": "0.4.5-preview.6",
   "description": "DSH 原生侧栏思维导图，支持 Markdown 笔记、布局保存和离线 HTML 导出。",
   "license": "MIT",
   "keywords": [

@@ -1,4 +1,4 @@
-export { AtlasPane } from '../../src/client/AtlasPane.tsx'
+export { AtlasPane, ReadingPane } from '../../src/client/AtlasPane.tsx'
 export { RenderNote } from '../../src/client/render-note.tsx'
 export { MapScene } from '../../src/client/components/MapScene.tsx'
 export { Icon } from '../../src/client/components/Icon.tsx'

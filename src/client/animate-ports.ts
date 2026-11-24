@@ -38,7 +38,7 @@ export function useAnimatedPorts(
   target: Connections,
   nodes: Record<string, Rect>,
   viewId: string,
-  options?: Pick<RoutingOptions, 'dragging' | 'hints'>,
+  options?: Pick<RoutingOptions, 'dragging' | 'hints' | 'groups'>,
 ): Connections {
   const [, setTime] = useState(0)
   const motions = useRef(new Map<string, Motion>())
@@ -108,6 +108,10 @@ export function useAnimatedPorts(
     vertical: segment.vertical,
     self: segment.self,
     ...(segment.archClearance !== undefined ? { archClearance: segment.archClearance } : {}),
+    ...(segment.archLane !== undefined ? { archLane: segment.archLane } : {}),
+    ...(segment.hsBias !== undefined ? { hsBias: segment.hsBias } : {}),
+    ...(segment.heBias !== undefined ? { heBias: segment.heBias } : {}),
+    ...(segment.bidirFlipped ? { bidirFlipped: true } : {}),
   }))
   const routed = routeSegments(interpolated, nodes, options)
   return { ports, segments: routed.segments, hints: routed.hints }
