@@ -54,11 +54,11 @@
 ## 2026-11-24 预览包自动打包约定
 
 - 每次影响插件产物的改动（`src/`、构建脚本、依赖及随包文档）完成后，Agent 自动执行 `npm.cmd run pack:plugin` 生成预览包，不需要用户另行要求；打包不等同于验收通过，交付时仍须说明未验证项。仅改 `AGENTS.md`、`specs/`、`docs/validation/` 等不进入产物的文件、纯问答与只读调查的回合不打包。
-- 预览包版本号固定为 `0.4.5-preview.n`，产物位于 `dist/previews/xiao-53-dsh-mindmap-0.4.5-preview.n.tgz`。
+- 预览包版本号固定为 `0.4.7-preview.n`，产物位于 `dist/previews/xiao-53-dsh-mindmap-0.4.7-preview.n.tgz`。
 - 命名前必须先列出 `dist/previews/` 目录，取已有 `preview.n` 的最大 n，新版本为 n+1：不重复已有编号，不跳号，目录为空时从 `preview.1` 开始。
-- 确定编号后先把 `package.json` 与 `package-lock.json`（根节点 `version` 及 `packages[""].version`）的版本同步改为 `0.4.5-preview.(n+1)`，再打包；打包后核对输出的 tgz 文件名与目录中无重复。
+- 确定编号后先把 `package.json` 与 `package-lock.json`（根节点 `version` 及 `packages[""].version`）的版本同步改为 `0.4.7-preview.(n+1)`，再打包；打包后核对输出的 tgz 文件名与目录中无重复。
 - 同一回合内如有多次改动，只在该回合全部改动完成后打包一次，避免无意义地消耗编号。
-- 基础版本号（`0.4.5`）升级或正式发布仍须用户明确指示；预览包不创建 Git 标签、不推送、不发布。
+- 基础版本号（`0.4.7`）升级或正式发布仍须用户明确指示；预览包不创建 Git 标签、不推送、不发布。
 
 ## 2026-11-24 交付前 Git 本地保存约定
 
