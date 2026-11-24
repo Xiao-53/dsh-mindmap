@@ -21,7 +21,7 @@
 3. **无重型外部依赖 & 双端 100% 一致**：
    - 不引入 Dagre、ELK、React Flow 等外部图形或布局库；共享算法位于 `src/shared/`，客户端渲染位于 `src/client/`。
    - DSH 桌面原生侧栏（窄栏至宽屏，浅色/深色主题）与导出的独立离线 HTML（`src/client/offline.tsx` 直接复用 `ReadingPane`、`MapScene`、`MapViewport`）共用同一套排版、连线与样式代码。
-4. **HTML v17 视觉基准**（`docs/knowledge_atlas_demo_v17.html`、`src/client/styles/prototype.css`）：
+4. **视觉与交互约束**（以当前 `src/client/styles/` 与 `src/shared/edge-geometry.ts` 为准；早期 `knowledge_atlas_demo_v17.html` 已过时，不作为本次研究约束）：
    - 保持柔和曲线美学（不改为全图直角正交折线）。
    - 输入端口为雾霾蓝实心圆（`#8699aa`，半径 `3.5px`，描边 `1px`）；输出端口为灰豆沙空心圆（`#b38c97`，半径 `3.5px`，描边 `2px`）；箭头 `8×7px` 尖端停靠输入圆外沿，带 `3px` 直线短柄 `stem`。
    - 拖拽节点时卡片必须直接跟手、零延迟；进入/退出子图过渡总时长为 `0.5s`（退出 `180ms` + 进入 `320ms`）。
