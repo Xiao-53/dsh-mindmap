@@ -17,7 +17,8 @@
 
 ## 界面预览
 
-![DSH 思维导图侧栏与节点详情预览](docs/images/interface-preview.png)
+<img width="2500" height="1440" alt="image" src="https://github.com/user-attachments/assets/37f9abc8-1ce7-485a-be9c-e4afedab3b02" />
+
 
 ## 环境要求
 
